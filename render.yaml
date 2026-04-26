@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: cs-crm-api
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn crm_app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11"
+      - key: FREJUN_WEBHOOK_SECRET
+        sync: false
+      - key: FREJUN_CLIENT_ID
+        sync: false
+      - key: FREJUN_CLIENT_SECRET
+        sync: false
+      - key: FREJUN_API_KEY
+        sync: false
