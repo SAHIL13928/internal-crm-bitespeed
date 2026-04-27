@@ -93,7 +93,10 @@
       "Bash(python scripts/backfill_call_shop_bindings.py --dry-run)",
       "Bash(python scripts/backfill_call_shop_bindings.py)",
       "Bash(python -m json.tool)",
-      "Bash(CRM_DB_PATH=/tmp/bootstrap_test.db python scripts/bootstrap_render.py)"
+      "Bash(CRM_DB_PATH=/tmp/bootstrap_test.db python scripts/bootstrap_render.py)",
+      "Bash(python)",
+      "Bash(python -m pytest tests/test_frejun_webhook.py -v)",
+      "Bash(python -m pytest tests/ -q)"
     ]
   }
 }

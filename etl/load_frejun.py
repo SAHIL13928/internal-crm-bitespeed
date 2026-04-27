@@ -80,15 +80,21 @@ def apply_call_record(record: dict, db: Session, phone_to_shop: dict) -> Tuple[O
 
     Returns (call, is_new, matched_to_shop). Caller owns the transaction.
     Raises ValueError on missing call id."""
-    cid = record.get("id") or record.get("uuid")
+    # `call_id` is the live-webhook field name; `id`/`uuid` come from the
+    # v2 API backfill. Accept all three.
+    cid = record.get("id") or record.get("uuid") or record.get("call_id")
     if cid is None:
         raise ValueError("missing call id")
     cid = str(cid)
 
     direction = "outbound" if (record.get("call_type") or "").lower().startswith("out") else "inbound"
-    connected = (record.get("status") or record.get("call_status") or "").lower() in {
-        "completed", "answered", "connected"
-    }
+    # Live webhook sends sentence-case statuses ("Call completed",
+    # "Outbound call initiated"). Normalize and look for "completed" or
+    # "answered" anywhere in the string. "initiated" / "ringing" are NOT
+    # connected — those events fire before the candidate picks up.
+    raw_status = (record.get("status") or record.get("call_status") or "").lower()
+    connected = any(tok in raw_status for tok in ("completed", "answered", "connected")) and \
+        not any(tok in raw_status for tok in ("initiated", "ringing", "missed", "not-answered", "not answered"))
 
     creator = record.get("creator_number")
     candidate = record.get("candidate_number")
@@ -128,20 +134,53 @@ def apply_call_record(record: dict, db: Session, phone_to_shop: dict) -> Tuple[O
         call = existing
         is_new = False
 
-    call.shop_url = shop
+    # Live webhook duration is in MILLISECONDS (e.g. 62960 ms ≈ 63 s).
+    # The v2 API backfill sends seconds. Detect by magnitude — anything
+    # over an hour expressed in seconds (3600s) is almost certainly ms.
+    raw_dur = record.get("call_duration") or record.get("duration")
+    duration_sec: Optional[int] = None
+    if raw_dur is not None:
+        try:
+            d = int(raw_dur)
+            duration_sec = d // 1000 if d > 3600 else d
+        except (TypeError, ValueError):
+            duration_sec = None
+
+    # Agent email field varies by source: live webhook = `call_creator`,
+    # v2 API = `recruiter`, older formats = `agent_email`.
+    agent_email = (
+        record.get("call_creator")
+        or record.get("recruiter")
+        or record.get("agent_email")
+    )
+
+    # Two events arrive per call (call.status, call.recording). We must
+    # be additive on the second event: don't overwrite a populated field
+    # with None just because this event didn't include it. Always-set
+    # fields (like direction, connected) are fine to overwrite.
+    def _set_if(field: str, value):
+        if value not in (None, ""):
+            setattr(call, field, value)
+
+    # Always-current fields (latest event wins):
+    call.shop_url = shop or call.shop_url
     call.direction = direction
-    call.connected = connected
-    call.started_at = _parse_iso(record.get("call_start_time") or record.get("start_time") or record.get("started_at"))
-    dur = record.get("call_duration") or record.get("duration")
-    call.duration_sec = int(dur) if dur is not None else None  # FreJun sends fractional seconds; column is Integer
-    call.from_number = from_n
-    call.to_number = to_n
-    call.agent_email = record.get("recruiter") or record.get("agent_email")
-    call.agent_name = record.get("agent_name") or record.get("user_name")  # no FreJun equivalent
-    call.recording_url = record.get("recording_url") or record.get("recording")
-    call.transcript = transcript
-    call.summary = summary
-    call.sentiment = record.get("sentiment")  # not in FreJun v2; preserved for forward compat
+    if connected or call.connected is None:
+        call.connected = connected
+
+    _set_if("started_at", _parse_iso(
+        record.get("call_start_time") or record.get("start_time") or record.get("started_at")
+    ))
+    _set_if("duration_sec", duration_sec)
+    _set_if("from_number", from_n)
+    _set_if("to_number", to_n)
+    _set_if("agent_email", agent_email)
+    _set_if("agent_name", record.get("agent_name") or record.get("user_name") or record.get("candidate_name"))
+    _set_if("recording_url", record.get("recording_url") or record.get("recording"))
+    _set_if("transcript", transcript)
+    _set_if("summary", summary or record.get("summary_url"))  # summary_url is FreJun's hosted summary page
+    _set_if("sentiment", record.get("sentiment"))
+    # raw always reflects the latest event so we can replay if needed.
     call.raw = json.dumps(record, ensure_ascii=False)
 
     # Grow the identity graph from this co-occurrence so future events can

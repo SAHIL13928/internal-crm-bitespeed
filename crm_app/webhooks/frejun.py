@@ -33,8 +33,11 @@ def _verify_secret(header_value: Optional[str]):
 
 
 def _extract_records(payload):
-    """FreJun sends one of three shapes — bare call object, `{event, data: {...}}`,
-    or a list. Be lenient until we have a verified sample."""
+    """FreJun sends one of several shapes:
+      - bare call object (live webhook): `{event, call_id, ...}`
+      - wrapped: `{event, data: {...}}`
+      - bulk list (older format): `[{...}, {...}]`
+    Recognize any of `id`, `uuid`, or `call_id` as the record marker."""
     if isinstance(payload, list):
         return payload
     if isinstance(payload, dict):
@@ -43,7 +46,8 @@ def _extract_records(payload):
             return data
         if isinstance(data, dict):
             return [data]
-        if "uuid" in payload or "id" in payload:
+        # Bare event payload (the live webhook shape).
+        if any(k in payload for k in ("uuid", "id", "call_id")):
             return [payload]
     return []
 
