@@ -9,15 +9,18 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import desc, func, or_
 from sqlalchemy.orm import Session, selectinload
 
 from .db import Base, engine, get_db
 from .models import (
+    Binding,
     Call,
     Contact,
+    Identity,
     Issue,
     Meeting,
     MeetingAttendee,
@@ -26,6 +29,7 @@ from .models import (
     WhatsAppGroup,
     WhatsAppGroupEvent,
     WhatsAppMessage,
+    WhatsAppRawMessage,
 )
 from .schemas import (
     AttendeeOut,
@@ -46,6 +50,7 @@ from .schemas import (
     TimelineItem,
     WhatsAppGroupOut,
 )
+from .admin import router as admin_router
 from .webhooks import frejun_router, whatsapp_router
 
 logger = logging.getLogger("crm")
@@ -81,6 +86,26 @@ app.add_middleware(
 
 app.include_router(whatsapp_router)
 app.include_router(frejun_router)
+app.include_router(admin_router)
+
+
+# Spec-mandated top-level alias: /admin/conflicts. Delegates to the same
+# handler that lives at /api/admin/conflicts so behavior cannot diverge.
+from .admin import list_conflicts as _list_conflicts  # noqa: E402
+
+
+@app.get("/admin/conflicts", tags=["admin"])
+def admin_conflicts_alias(
+    limit: int = Query(100, ge=1, le=1000),
+    x_admin_secret: Optional[str] = Header(None),
+    db: Session = Depends(get_db),
+):
+    return _list_conflicts(limit=limit, x_admin_secret=x_admin_secret, db=db)
+
+# Static frontend (single-page app) at /app/. Keeps GET / clean for Render's health probe.
+_frontend_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend")
+if os.path.isdir(_frontend_dir):
+    app.mount("/app", StaticFiles(directory=_frontend_dir, html=True), name="frontend")
 
 
 @app.get("/")
@@ -90,6 +115,91 @@ def root():
 
 
 # ── helpers ───────────────────────────────────────────────────────────────
+import re as _re
+
+_PHONE_DIGITS = _re.compile(r"\D+")
+
+
+def _norm_phone_local(p):
+    if not p:
+        return None
+    d = _PHONE_DIGITS.sub("", p)
+    return d or None
+
+
+def _initials(name):
+    if not name:
+        return None
+    parts = [p for p in name.replace(".", " ").split() if p]
+    if not parts:
+        return None
+    if len(parts) == 1:
+        return parts[0][:2].upper()
+    return (parts[0][0] + parts[-1][0]).upper()
+
+
+def _build_shop_phone_to_contact(db: Session, shop_url: str) -> dict:
+    """Map digits-only phone -> Contact for one shop's contacts. Used to resolve
+    the merchant-side counterparty name on calls."""
+    rows = (
+        db.query(Contact)
+        .filter(Contact.shop_url == shop_url, Contact.phone.isnot(None), Contact.is_internal.is_(False))
+        .all()
+    )
+    out = {}
+    for c in rows:
+        n = _norm_phone_local(c.phone)
+        if n and n not in out:
+            out[n] = c
+    return out
+
+
+def _parse_insights(raw):
+    """Try to deserialize FreJun's ai_insights JSON. Returns (structured_obj_or_None, narrative_str_or_None)."""
+    if not raw:
+        return None, None
+    try:
+        obj = json.loads(raw)
+    except (ValueError, TypeError):
+        return None, raw  # not JSON — treat as plain narrative
+    if not isinstance(obj, dict):
+        return obj, None
+    summary_block = obj.get("summary") if isinstance(obj.get("summary"), dict) else None
+    narrative = (summary_block or {}).get("transcript_summary") if summary_block else None
+    return obj, narrative
+
+
+def _enrich_call_item(c: Call, phone_to_contact: dict) -> CallListItem:
+    counterparty = c.to_number if (c.direction or "").startswith("out") else c.from_number
+    contact = phone_to_contact.get(_norm_phone_local(counterparty)) if counterparty else None
+    insights, narrative = _parse_insights(c.summary)
+    # Sentiment: prefer FreJun's ai_insights.sentiment_score.sentiment, else stored field
+    sent = None
+    if isinstance(insights, dict):
+        ss = insights.get("sentiment_score")
+        if isinstance(ss, dict):
+            sent = ss.get("sentiment")
+    sent = sent or c.sentiment
+    return CallListItem(
+        id=c.id,
+        started_at=c.started_at,
+        direction=c.direction,
+        connected=bool(c.connected),
+        duration_sec=c.duration_sec,
+        from_number=c.from_number,
+        to_number=c.to_number,
+        agent_name=c.agent_name,
+        counterparty_phone=counterparty,
+        counterparty_name=(contact.name if contact else None),
+        counterparty_role=(contact.role if contact else None),
+        summary=c.summary,
+        summary_text=narrative,
+        ai_insights=insights,
+        sentiment=sent,
+        shop_url=c.shop_url,
+    )
+
+
 def _get_shop_or_404(db: Session, shop_url: str) -> Shop:
     shop = db.get(Shop, shop_url.lower())
     if not shop:
@@ -162,13 +272,39 @@ def _compute_kpi(db: Session, shop_url: str) -> ShopKpi:
         .filter(WhatsAppGroup.shop_url == shop_url)
         .scalar() or 0
     )
+    meetings_7d_total_minutes = (
+        db.query(func.coalesce(func.sum(Meeting.duration_min), 0.0))
+        .filter(Meeting.shop_url == shop_url, Meeting.date.between(week_ago, now))
+        .scalar()
+    )
+    last_meeting_at = (
+        db.query(func.max(Meeting.date))
+        .filter(Meeting.shop_url == shop_url, Meeting.date.isnot(None)).scalar()
+    )
+    last_call_at = (
+        db.query(func.max(Call.started_at))
+        .filter(Call.shop_url == shop_url, Call.started_at.isnot(None)).scalar()
+    )
+    if last_meeting_at and (not last_call_at or last_meeting_at >= last_call_at):
+        last_contact_at, last_contact_kind = last_meeting_at, "meeting"
+    elif last_call_at:
+        last_contact_at, last_contact_kind = last_call_at, "call"
+    else:
+        last_contact_at, last_contact_kind = None, None
+
+    rate = round(100 * calls_7d_connected / calls_7d_attempted, 1) if calls_7d_attempted else None
+
     return ShopKpi(
         upcoming_meetings=upcoming,
         meetings_7d=meetings_7d,
+        meetings_7d_total_minutes=float(meetings_7d_total_minutes or 0.0) or None,
         calls_7d_attempted=calls_7d_attempted,
         calls_7d_connected=calls_7d_connected,
+        calls_7d_connect_rate_pct=rate,
         open_issues=open_issues,
         whatsapp_groups=wa,
+        last_contact_at=last_contact_at,
+        last_contact_kind=last_contact_kind,
     )
 
 
@@ -190,12 +326,23 @@ def health(db: Session = Depends(get_db)):
             "messages": db.query(func.count(WhatsAppMessage.message_id)).scalar() or 0,
             "messages_with_shop": db.query(func.count(WhatsAppMessage.message_id))
                 .filter(WhatsAppMessage.shop_url.isnot(None)).scalar() or 0,
+            "raw_messages": db.query(func.count(WhatsAppRawMessage.id)).scalar() or 0,
+            "raw_messages_resolved": db.query(func.count(WhatsAppRawMessage.id))
+                .filter(WhatsAppRawMessage.resolution_status == "resolved").scalar() or 0,
+            "raw_messages_pending": db.query(func.count(WhatsAppRawMessage.id))
+                .filter(WhatsAppRawMessage.resolution_status == "pending").scalar() or 0,
+            "raw_messages_conflict": db.query(func.count(WhatsAppRawMessage.id))
+                .filter(WhatsAppRawMessage.resolution_status == "conflict").scalar() or 0,
             "groups_known": db.query(func.count(WhatsAppGroup.id))
                 .filter(WhatsAppGroup.group_jid.isnot(None)).scalar() or 0,
             "group_events": db.query(func.count(WhatsAppGroupEvent.id)).scalar() or 0,
             "last_message_received_at": last_msg_ts.isoformat() if last_msg_ts else None,
             "last_group_event_received_at": last_evt_ts.isoformat() if last_evt_ts else None,
             "webhook_secret_configured": bool(os.environ.get("WHATSAPP_WEBHOOK_SECRET")),
+        },
+        "identity_graph": {
+            "identities": db.query(func.count(Identity.id)).scalar() or 0,
+            "bindings": db.query(func.count(Binding.id)).scalar() or 0,
         },
         "frejun": {
             "webhook_secret_configured": bool(os.environ.get("FREJUN_WEBHOOK_SECRET")),
@@ -290,12 +437,35 @@ def list_meetings(
     db: Session = Depends(get_db),
 ):
     _get_shop_or_404(db, shop_url)
-    q = db.query(Meeting).filter(Meeting.shop_url == shop_url.lower())
+    q = (
+        db.query(Meeting)
+        .options(selectinload(Meeting.attendees))
+        .filter(Meeting.shop_url == shop_url.lower())
+    )
     if since:
         q = q.filter(Meeting.date >= since)
     if until:
         q = q.filter(Meeting.date <= until)
-    return q.order_by(desc(Meeting.date)).offset(offset).limit(limit).all()
+    rows = q.order_by(desc(Meeting.date)).offset(offset).limit(limit).all()
+    out = []
+    for m in rows:
+        atts = m.attendees or []
+        initials = [
+            _initials(a.display_name or (a.email.split("@")[0] if a.email else None))
+            for a in atts[:3]
+        ]
+        out.append(MeetingListItem(
+            id=m.id,
+            title=m.title or "(meeting)",
+            date=m.date,
+            duration_min=m.duration_min,
+            summary_short=m.summary_short,
+            shop_url=m.shop_url,
+            mapping_source=m.mapping_source,
+            attendee_count=len(atts),
+            attendee_initials=[i for i in initials if i],
+        ))
+    return out
 
 
 @app.get("/api/meetings/{meeting_id}", response_model=MeetingDetail)
@@ -317,20 +487,23 @@ def list_calls(
     shop_url: str,
     since: Optional[datetime] = None,
     until: Optional[datetime] = None,
-    direction: Optional[str] = Query(None, regex="^(inbound|outbound)$"),
+    direction: Optional[str] = Query(None, pattern="^(inbound|outbound)$"),
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
 ):
     _get_shop_or_404(db, shop_url)
-    q = db.query(Call).filter(Call.shop_url == shop_url.lower())
+    shop_url = shop_url.lower()
+    phone_to_contact = _build_shop_phone_to_contact(db, shop_url)
+    q = db.query(Call).filter(Call.shop_url == shop_url)
     if since:
         q = q.filter(Call.started_at >= since)
     if until:
         q = q.filter(Call.started_at <= until)
     if direction:
         q = q.filter(Call.direction == direction)
-    return q.order_by(desc(Call.started_at)).offset(offset).limit(limit).all()
+    rows = q.order_by(desc(Call.started_at)).offset(offset).limit(limit).all()
+    return [_enrich_call_item(c, phone_to_contact) for c in rows]
 
 
 @app.get("/api/calls/{call_id}", response_model=CallDetail)
@@ -338,14 +511,55 @@ def get_call(call_id: str, db: Session = Depends(get_db)):
     c = db.get(Call, call_id)
     if not c:
         raise HTTPException(status_code=404, detail="call not found")
-    return c
+    phone_to_contact = (
+        _build_shop_phone_to_contact(db, c.shop_url) if c.shop_url else {}
+    )
+    counterparty = c.to_number if (c.direction or "").startswith("out") else c.from_number
+    contact = phone_to_contact.get(_norm_phone_local(counterparty)) if counterparty else None
+    insights, narrative = _parse_insights(c.summary)
+    sent = None
+    if isinstance(insights, dict):
+        ss = insights.get("sentiment_score")
+        if isinstance(ss, dict):
+            sent = ss.get("sentiment")
+    sent = sent or c.sentiment
+    transcript_segments = None
+    if c.transcript:
+        try:
+            parsed = json.loads(c.transcript)
+            if isinstance(parsed, list):
+                transcript_segments = parsed
+        except (ValueError, TypeError):
+            pass
+    return CallDetail(
+        id=c.id,
+        started_at=c.started_at,
+        direction=c.direction,
+        connected=bool(c.connected),
+        duration_sec=c.duration_sec,
+        from_number=c.from_number,
+        to_number=c.to_number,
+        agent_name=c.agent_name,
+        counterparty_phone=counterparty,
+        counterparty_name=(contact.name if contact else None),
+        counterparty_role=(contact.role if contact else None),
+        summary=c.summary,
+        summary_text=narrative,
+        ai_insights=insights,
+        sentiment=sent,
+        shop_url=c.shop_url,
+        agent_email=c.agent_email,
+        recording_url=c.recording_url,
+        transcript=c.transcript,
+        transcript_segments=transcript_segments,
+    )
 
 
 # ── issues ────────────────────────────────────────────────────────────────
 @app.get("/api/merchants/{shop_url}/issues", response_model=List[IssueOut])
 def list_issues(
     shop_url: str,
-    status: Optional[str] = Query(None, regex="^(open|in_progress|resolved)$"),
+    status: Optional[str] = Query(None, pattern="^(open|in_progress|resolved)$"),
     db: Session = Depends(get_db),
 ):
     _get_shop_or_404(db, shop_url)
@@ -445,22 +659,29 @@ def get_timeline(
             metadata={"duration_min": m.duration_min},
         ))
 
+    phone_to_contact = _build_shop_phone_to_contact(db, shop_url)
     cq = db.query(Call).filter(Call.shop_url == shop_url, Call.started_at.isnot(None))
     if since:
         cq = cq.filter(Call.started_at >= since)
     if until:
         cq = cq.filter(Call.started_at <= until)
     for c in cq.all():
+        cp = c.to_number if (c.direction or "").startswith("out") else c.from_number
+        contact = phone_to_contact.get(_norm_phone_local(cp)) if cp else None
+        cp_label = (contact.name if contact else None) or cp or "?"
+        title = f"{c.direction or 'call'} · {cp_label}"
         items.append(TimelineItem(
             type="call",
             id=c.id,
             timestamp=c.started_at,
-            title=f"{c.direction or 'call'} · {c.agent_name or ''}".strip(),
+            title=title,
             summary=c.summary,
             metadata={
                 "connected": c.connected,
                 "duration_sec": c.duration_sec,
                 "sentiment": c.sentiment,
+                "agent_name": c.agent_name,
+                "counterparty_phone": cp,
             },
         ))
 

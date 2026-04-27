@@ -38,9 +38,13 @@ class ShopKpi(BaseModel):
     upcoming_meetings: int = 0
     calls_7d_attempted: int = 0
     calls_7d_connected: int = 0
+    calls_7d_connect_rate_pct: Optional[float] = None
     meetings_7d: int = 0
+    meetings_7d_total_minutes: Optional[float] = None
     open_issues: int = 0
     whatsapp_groups: int = 0
+    last_contact_at: Optional[datetime] = None
+    last_contact_kind: Optional[str] = None  # "meeting" | "call"
 
 
 class ShopProfile(ORM):
@@ -72,6 +76,8 @@ class MeetingListItem(ORM):
     summary_short: Optional[str] = None
     shop_url: Optional[str] = None
     mapping_source: Optional[str] = None
+    attendee_count: Optional[int] = None
+    attendee_initials: Optional[List[str]] = None  # first ~3, for avatar display
 
 
 class MeetingDetail(MeetingListItem):
@@ -97,8 +103,13 @@ class CallListItem(ORM):
     duration_sec: Optional[int] = None
     from_number: Optional[str] = None
     to_number: Optional[str] = None
-    agent_name: Optional[str] = None
-    summary: Optional[str] = None
+    agent_name: Optional[str] = None              # Bitespeed-side
+    counterparty_phone: Optional[str] = None      # merchant-side, normalized for display
+    counterparty_name: Optional[str] = None       # resolved from contacts.phone
+    counterparty_role: Optional[str] = None       # resolved from contacts.role (when populated)
+    summary: Optional[str] = None                 # raw string fallback
+    summary_text: Optional[str] = None            # narrative pulled out of ai_insights when present
+    ai_insights: Optional[Any] = None             # FreJun structured insights (sentiment, action_items, qa)
     sentiment: Optional[str] = None
     shop_url: Optional[str] = None
 
@@ -106,7 +117,8 @@ class CallListItem(ORM):
 class CallDetail(CallListItem):
     agent_email: Optional[str] = None
     recording_url: Optional[str] = None
-    transcript: Optional[str] = None
+    transcript: Optional[str] = None              # raw JSON string fallback
+    transcript_segments: Optional[Any] = None     # parsed list of {start,end,text,speaker} when available
 
 
 # ── issues ────────────────────────────────────────────────────────────────
@@ -240,3 +252,30 @@ class WhatsAppGroupEventResult(BaseModel):
     event_id: int
     group_jid: str
     applied: bool
+
+
+# ── new whatsapp raw-message ingestion (intern's spec) ────────────────────
+# Distinct from WhatsAppMessageIn above. The intern's bridge sends ONLY the
+# fields below — no message_id, no JID. We dedupe by (group_name,
+# sender_phone, timestamp, body) and resolve to a shop after insert.
+class WhatsAppRawMessageIn(BaseModel):
+    group_name: str
+    sender_phone: str           # E.164
+    sender_name: Optional[str] = None
+    timestamp: datetime
+    body: Optional[str] = None  # may be missing for media-only; coerced to "" server-side for dedupe
+    is_from_me: bool
+    message_type: Literal["text", "document"]
+    media_url: Optional[str] = None
+
+
+class WhatsAppRawMessageBatch(BaseModel):
+    # 413 boundary — anything larger gets rejected before parsing per-row.
+    messages: List[WhatsAppRawMessageIn] = Field(..., min_length=1, max_length=500)
+
+
+class WhatsAppRawMessagesResult(BaseModel):
+    received: int
+    duplicates: int
+    resolved: int           # how many of the just-inserted rows resolved to a shop inline
+    pending: int            # left for the graph reprocessor

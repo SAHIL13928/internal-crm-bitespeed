@@ -63,7 +63,32 @@
       "Bash(rm -rf __pycache__ crm_app/__pycache__ etl/__pycache__)",
       "Bash(venv/Scripts/python tests/smoke_test_whatsapp_webhook.py)",
       "Bash(venv/Scripts/python tests/smoke_test_frejun_webhook.py)",
-      "Bash(venv/Scripts/python -c \"import secrets; print\\(secrets.token_urlsafe\\(32\\)\\)\")"
+      "Bash(venv/Scripts/python -c \"import secrets; print\\(secrets.token_urlsafe\\(32\\)\\)\")",
+      "Bash(venv/Scripts/python scripts/backfill_frejun_calls.py --dry-run --limit 5)",
+      "Bash(venv/Scripts/python scripts/backfill_frejun_calls.py)",
+      "Bash(echo \"EXIT=$?\")",
+      "Bash(venv/Scripts/python -m etl.enrich_shops)",
+      "Bash(venv/Scripts/python -m etl.load_fireflies)",
+      "Bash(venv/Scripts/python -c \"from crm_app.main import app; print\\('imports OK, route count:', len\\(app.routes\\)\\)\")",
+      "Bash(venv/Scripts/python -m json.tool)",
+      "Bash(curl -s http://127.0.0.1:8765/api/admin/coverage)",
+      "Bash(curl -s \"http://127.0.0.1:8765/api/admin/orphans/emails?top=10\")",
+      "Bash(curl -s http://127.0.0.1:8765/api/merchants/bohecoo.myshopify.com)",
+      "Bash(curl *)",
+      "Bash(venv/Scripts/python tests/smoke_test_50.py)",
+      "Bash(venv/Scripts/python -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(json.dumps\\({k:d[k] for k in ['shop_url','brand_name','health_status','kpi']}, indent=2\\)\\)\")",
+      "Bash(venv/Scripts/python -m etl.sanitize_shop_contacts --report-only --shop the-clothing-factory-shop.myshopify.com)",
+      "Bash(venv/Scripts/python -m etl.sanitize_shop_contacts)",
+      "Bash(python -c \"from crm_app.db import SessionLocal; from crm_app.models import Shop, Contact, WhatsAppGroup; db=SessionLocal\\(\\); print\\('shops:', db.query\\(Shop\\).count\\(\\)\\); print\\('contacts:', db.query\\(Contact\\).count\\(\\)\\); print\\('whatsapp_groups:', db.query\\(WhatsAppGroup\\).count\\(\\)\\); print\\('groups_with_shop:', db.query\\(WhatsAppGroup\\).filter\\(WhatsAppGroup.shop_url.isnot\\(None\\)\\).count\\(\\)\\); print\\('contacts_with_phone:', db.query\\(Contact\\).filter\\(Contact.phone.isnot\\(None\\)\\).count\\(\\)\\); print\\('contacts_with_email:', db.query\\(Contact\\).filter\\(Contact.email.isnot\\(None\\)\\).count\\(\\)\\)\")",
+      "Bash(python -c \"from crm_app.db import SessionLocal; from sqlalchemy import inspect, text; db=SessionLocal\\(\\); insp=inspect\\(db.bind\\); print\\(sorted\\(insp.get_table_names\\(\\)\\)\\)\")",
+      "Bash(python -c \"import pytest; print\\(pytest.__version__\\)\")",
+      "Bash(python -c \"import httpx; print\\(httpx.__version__\\)\")",
+      "Bash(python -m pip install pytest httpx)",
+      "Bash(python -c \"import secrets; print\\(secrets.token_urlsafe\\(32\\)\\)\")",
+      "Bash(python -m pytest tests/test_whatsapp_ingestion.py tests/test_identity_graph.py -v)",
+      "Bash(python scripts/recompute_static_directory_bindings.py --dry-run)",
+      "Bash(python scripts/recompute_static_directory_bindings.py)",
+      "Bash(python -m pytest tests/test_whatsapp_ingestion.py tests/test_identity_graph.py -q)"
     ]
   }
 }

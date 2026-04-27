@@ -2,14 +2,17 @@ from datetime import datetime
 
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     Column,
     Date,
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import relationship
 
@@ -191,3 +194,88 @@ class WhatsAppGroupEvent(Base):
     changed_at = Column(DateTime, index=True, nullable=True)
     received_at = Column(DateTime, default=datetime.utcnow)
     raw = Column(Text, nullable=True)
+
+
+# ── Raw landing table for the WA bridge intern's payload ──────────────────
+# Distinct from WhatsAppMessage above: this is the canonical intake surface
+# the intern POSTs to. Resolution to a shop happens after insert and is
+# tracked via resolution_status so the graph reprocessor can revisit pending
+# rows once new bindings appear.
+class WhatsAppRawMessage(Base):
+    __tablename__ = "whatsapp_raw_messages"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    # Intern-supplied fields (per spec)
+    group_name = Column(String, nullable=False, index=True)
+    sender_phone = Column(String, nullable=False, index=True)  # E.164
+    sender_name = Column(String, nullable=True)
+    timestamp = Column(DateTime, nullable=False, index=True)
+    body = Column(Text, nullable=False, default="")  # coerced from None to "" so SQLite UNIQUE works (NULLs are distinct in SQLite)
+    is_from_me = Column(Boolean, nullable=False, default=False)
+    message_type = Column(String, nullable=False)  # text|document
+    media_url = Column(Text, nullable=True)
+
+    # Server-side bookkeeping
+    received_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    processed_at = Column(DateTime, nullable=True)
+    resolution_status = Column(String, nullable=False, default="pending", index=True)
+    resolved_shop_url = Column(String, ForeignKey("shops.shop_url"), nullable=True, index=True)
+    resolution_method = Column(String, nullable=True)
+
+    __table_args__ = (
+        # Idempotency for intern retries — same logical message → same row.
+        UniqueConstraint("group_name", "sender_phone", "timestamp", "body",
+                         name="uq_whatsapp_raw_messages_natural_key"),
+        CheckConstraint(
+            "resolution_status IN ('pending','resolved','unresolvable','conflict')",
+            name="ck_whatsapp_raw_messages_resolution_status",
+        ),
+    )
+
+
+# ── Identity graph ─────────────────────────────────────────────────────────
+# Nodes are typed (shop_url, phone, email, meeting_link, group_name).
+# Edges record co-occurrence in real events with a source + evidence pointer.
+# Connected components = same merchant. We never add edges from string
+# fuzziness — only from observed co-occurrence.
+class Identity(Base):
+    __tablename__ = "identities"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    kind = Column(String, nullable=False)
+    value = Column(String, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("kind", "value", name="uq_identities_kind_value"),
+        CheckConstraint(
+            "kind IN ('shop_url','phone','email','meeting_link','group_name')",
+            name="ck_identities_kind",
+        ),
+        Index("ix_identities_kind_value", "kind", "value"),
+    )
+
+
+class Binding(Base):
+    __tablename__ = "bindings"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    # Stored undirected with a_id < b_id so each edge appears exactly once.
+    identity_a_id = Column(Integer, ForeignKey("identities.id"), nullable=False, index=True)
+    identity_b_id = Column(Integer, ForeignKey("identities.id"), nullable=False, index=True)
+    source = Column(String, nullable=False)  # static_directory|whatsapp|frejun|fireflies|manual
+    confidence = Column(Float, nullable=False, default=1.0)
+    observed_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    evidence_table = Column(String, nullable=True)
+    evidence_id = Column(String, nullable=True)
+
+    __table_args__ = (
+        # NULL evidence_id is treated as distinct in SQLite, but we always
+        # supply an evidence_id (or a deterministic stand-in) when adding
+        # bindings — see crm_app.identity.add_binding.
+        UniqueConstraint(
+            "identity_a_id", "identity_b_id", "source", "evidence_id",
+            name="uq_bindings_natural_key",
+        ),
+        CheckConstraint("identity_a_id < identity_b_id", name="ck_bindings_undirected_order"),
+    )

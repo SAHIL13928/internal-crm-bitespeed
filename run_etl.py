@@ -8,6 +8,7 @@ Usage:
 """
 import sys
 
+from etl.enrich_shops import load_brand_names
 from etl.load_fireflies import load_fireflies
 from etl.load_shops import load_shops
 
@@ -33,6 +34,7 @@ def run_frejun():
 
 STAGES = {
     "shops": load_shops,
+    "brand_names": load_brand_names,
     "fireflies": load_fireflies,
     "frejun": run_frejun,
 }

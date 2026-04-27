@@ -51,22 +51,73 @@ def _parse_iso(s):
         return None
 
 
+def _stringify(v):
+    """SQLite TEXT columns can't bind Python list/dict — JSON-encode if structured."""
+    if isinstance(v, (dict, list)):
+        return json.dumps(v, ensure_ascii=False)
+    return v
+
+
 def apply_call_record(record: dict, db: Session, phone_to_shop: dict) -> Tuple[Optional[Call], bool, bool]:
     """Map one Frejun call record onto a Call row.
 
-    Returns (call, is_new, matched_to_shop).
-    Caller is responsible for the surrounding transaction (commit / savepoint).
+    Field names match FreJun v2 (`/api/v2/integrations/calls/`):
+      - id                  numeric primary id (used as our PK; fallback to `uuid` for legacy)
+      - call_type           "outgoing" | "incoming"
+      - status              "completed" | "answered" | "not-answered" | "missed" | ...
+      - call_start_time     ISO8601 (no tz)
+      - call_duration       seconds
+      - creator_number      the Bitespeed user's phone (agent side)
+      - candidate_number    the merchant's phone (counterparty — used for shop binding)
+      - virtual_number      the FreJun virtual line used for the call
+      - recruiter           the Bitespeed user's email
+      - recording_url
+      - call_transcript
+      - ai_insights         (may be a structured object — JSON-encoded if so)
+
+    Backward-compat fallbacks are kept for the older field names in case some
+    payload ever differs.
+
+    Returns (call, is_new, matched_to_shop). Caller owns the transaction.
     Raises ValueError on missing call id."""
-    cid = record.get("uuid") or record.get("id")
-    if not cid:
-        raise ValueError("missing call id (uuid)")
+    cid = record.get("id") or record.get("uuid")
+    if cid is None:
+        raise ValueError("missing call id")
+    cid = str(cid)
 
     direction = "outbound" if (record.get("call_type") or "").lower().startswith("out") else "inbound"
-    connected = (record.get("call_status") or "").lower() in {"completed", "answered", "connected"}
-    from_n = record.get("from_number") or record.get("from")
-    to_n = record.get("to_number") or record.get("to")
-    counterparty = to_n if direction == "outbound" else from_n
+    connected = (record.get("status") or record.get("call_status") or "").lower() in {
+        "completed", "answered", "connected"
+    }
+
+    creator = record.get("creator_number")
+    candidate = record.get("candidate_number")
+    if direction == "outbound":
+        from_n = creator or record.get("from_number") or record.get("from")
+        to_n = candidate or record.get("to_number") or record.get("to")
+    else:
+        from_n = candidate or record.get("from_number") or record.get("from")
+        to_n = creator or record.get("virtual_number") or record.get("to_number") or record.get("to")
+
+    # Counterparty = merchant. For both directions that's `candidate_number`,
+    # falling back to whichever side isn't ours.
+    counterparty = candidate or (to_n if direction == "outbound" else from_n)
     shop = phone_to_shop.get(norm_phone(counterparty))
+
+    # Identity-graph fallback when the static directory misses. Imported
+    # lazily so etl tooling can run without the graph tables existing yet
+    # (they're created by the app on boot via Base.metadata.create_all).
+    if shop is None and counterparty:
+        try:
+            from crm_app import identity as _identity  # noqa: WPS433
+            graph_result = _identity.resolve_shop_url_for(db, "phone", counterparty)
+            if graph_result and graph_result != _identity.CONFLICT:
+                shop = graph_result
+        except Exception:  # noqa: BLE001 — never let identity lookup break ingestion
+            pass
+
+    summary = _stringify(record.get("ai_insights")) or record.get("call_summary") or record.get("summary")
+    transcript = _stringify(record.get("call_transcript") or record.get("transcript"))
 
     existing = db.get(Call, cid)
     if existing is None:
@@ -80,17 +131,35 @@ def apply_call_record(record: dict, db: Session, phone_to_shop: dict) -> Tuple[O
     call.shop_url = shop
     call.direction = direction
     call.connected = connected
-    call.started_at = _parse_iso(record.get("start_time") or record.get("started_at"))
-    call.duration_sec = record.get("duration") or record.get("call_duration")
+    call.started_at = _parse_iso(record.get("call_start_time") or record.get("start_time") or record.get("started_at"))
+    dur = record.get("call_duration") or record.get("duration")
+    call.duration_sec = int(dur) if dur is not None else None  # FreJun sends fractional seconds; column is Integer
     call.from_number = from_n
     call.to_number = to_n
-    call.agent_email = record.get("agent_email")
-    call.agent_name = record.get("agent_name") or record.get("user_name")
+    call.agent_email = record.get("recruiter") or record.get("agent_email")
+    call.agent_name = record.get("agent_name") or record.get("user_name")  # no FreJun equivalent
     call.recording_url = record.get("recording_url") or record.get("recording")
-    call.transcript = record.get("transcript")
-    call.summary = record.get("call_summary") or record.get("summary")
-    call.sentiment = record.get("sentiment")
+    call.transcript = transcript
+    call.summary = summary
+    call.sentiment = record.get("sentiment")  # not in FreJun v2; preserved for forward compat
     call.raw = json.dumps(record, ensure_ascii=False)
+
+    # Grow the identity graph from this co-occurrence so future events can
+    # resolve via the graph (idempotent — add_binding skips dupes).
+    if shop and counterparty:
+        try:
+            from crm_app import identity as _identity  # noqa: WPS433
+            _identity.add_binding(
+                db,
+                "phone", counterparty,
+                "shop_url", shop,
+                source="frejun",
+                confidence=0.9,
+                evidence_table="calls",
+                evidence_id=cid,
+            )
+        except Exception:  # noqa: BLE001
+            pass
 
     return call, is_new, shop is not None
 

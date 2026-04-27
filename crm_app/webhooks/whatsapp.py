@@ -1,180 +1,180 @@
-"""WhatsApp message + group-event ingestion.
+"""WhatsApp ingestion endpoints.
 
-Auth: shared bearer secret in `X-Webhook-Secret` (constant-time compared).
-Dedupe: by `message_id` if sent, otherwise SHA-256 fingerprint of the payload.
-Shop binding: group's shop_url first, then sender_phone -> contacts.phone fallback.
+`/messages` — receives the WA bridge intern's payload. Lands rows in the
+canonical `whatsapp_raw_messages` table (idempotent on intern retries via
+the natural-key unique constraint), then inline-resolves each row to a
+shop via the static directory + identity graph. Unresolved rows are left
+as 'pending' so the graph reprocessor can revisit them once new bindings
+appear.
+
+`/groups` — kept for legacy compatibility; the bridge currently does not
+feed it but we keep it wired for later membership work.
 """
-import hashlib
+import hmac
 import json
 import logging
 import os
-import secrets as _secrets
-from typing import Optional, Union
+from datetime import datetime
+from typing import List, Optional, Union
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
+from pydantic import ValidationError
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
 from ..db import get_db
-from ..models import WhatsAppGroup, WhatsAppGroupEvent, WhatsAppMessage
+from ..models import WhatsAppGroup, WhatsAppGroupEvent, WhatsAppRawMessage
+from ..resolver import resolve_whatsapp_message
 from ..schemas import (
     WhatsAppGroupEventIn,
     WhatsAppGroupEventResult,
-    WhatsAppMessageBatch,
-    WhatsAppMessageIn,
-    WhatsAppMessagesResult,
+    WhatsAppRawMessageBatch,
+    WhatsAppRawMessageIn,
+    WhatsAppRawMessagesResult,
 )
-from ..utils import build_phone_to_shop, norm_phone, to_naive_utc
+from ..utils import to_naive_utc
 
 logger = logging.getLogger("crm.webhook.whatsapp")
 router = APIRouter(prefix="/webhooks/whatsapp", tags=["webhooks"])
 
-WEBHOOK_SECRET = os.environ.get("WHATSAPP_WEBHOOK_SECRET")
+# Spec-mandated batch ceiling. Anything larger is rejected with 413 so the
+# intern's retry/backoff treats it as a non-retryable fatal condition.
+MAX_BATCH_SIZE = 500
+
+
+def _secret() -> Optional[str]:
+    # Read at call time so tests can swap env vars after import.
+    return os.environ.get("WHATSAPP_WEBHOOK_SECRET")
 
 
 def _verify_secret(header_value: Optional[str]):
-    if not WEBHOOK_SECRET:
+    secret = _secret()
+    if not secret:
+        # 503 distinguishes "we forgot to configure" from "you sent the wrong key".
         raise HTTPException(503, "WHATSAPP_WEBHOOK_SECRET not configured on server")
-    if not header_value or not _secrets.compare_digest(header_value, WEBHOOK_SECRET):
+    if not header_value or not hmac.compare_digest(header_value, secret):
         raise HTTPException(401, "invalid webhook secret")
 
 
-def _derive_message_id(m: WhatsAppMessageIn) -> str:
-    """Stable fingerprint when the bridge doesn't supply a message_id.
-    Same payload retried -> same hash -> upsert."""
-    parts = [
-        m.group_id or "",
-        m.group_name or "",
-        m.sender_phone or "",
-        m.timestamp.isoformat() if m.timestamp else "",
-        m.message_type or "",
-        m.body or "",
-        m.media_url or "",
-    ]
-    h = hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()[:32]
-    return f"derived:{h}"
+def _coerce_body(b: Optional[str]) -> str:
+    """Normalize None → "" so the SQLite UNIQUE(group_name, sender_phone,
+    timestamp, body) constraint actually catches retries of media-only
+    messages. NULL is treated as distinct in SQLite."""
+    return b if b is not None else ""
 
 
-def _resolve_group(
-    db: Session, cache: dict, group_jid: Optional[str], group_name: Optional[str]
-) -> Optional[WhatsAppGroup]:
-    """Find or create a WhatsAppGroup row.
-    Order: JID match -> group_name match (single hit) -> new tracking row."""
-    if group_jid:
-        key = ("jid", group_jid)
-        wag = cache.get(key)
-        if wag is None:
-            wag = db.query(WhatsAppGroup).filter_by(group_jid=group_jid).first()
-            if wag is None and group_name:
-                # promote a name-only row to also carry the JID
-                wag = (
-                    db.query(WhatsAppGroup)
-                    .filter_by(group_name=group_name, group_jid=None)
-                    .first()
-                )
-                if wag is not None:
-                    wag.group_jid = group_jid
-            if wag is None:
-                wag = WhatsAppGroup(group_jid=group_jid, group_name=group_name)
-                db.add(wag)
-                db.flush()
-            cache[key] = wag
-        if group_name and wag.group_name != group_name:
-            wag.group_name = group_name
-        return wag
-
-    if group_name:
-        key = ("name", group_name)
-        wag = cache.get(key)
-        if wag is None:
-            matches = db.query(WhatsAppGroup).filter_by(group_name=group_name).all()
-            if len(matches) == 1:
-                wag = matches[0]
-            elif len(matches) > 1:
-                with_shop = [m for m in matches if m.shop_url]
-                if len(with_shop) == 1:
-                    wag = with_shop[0]
-                else:
-                    logger.warning(
-                        "wa.messages: ambiguous group_name=%r (%d matches); creating tracking row",
-                        group_name, len(matches),
-                    )
-                    wag = WhatsAppGroup(group_name=group_name)
-                    db.add(wag); db.flush()
-            else:
-                wag = WhatsAppGroup(group_name=group_name)
-                db.add(wag); db.flush()
-            cache[key] = wag
-        return wag
-
-    return None
+def _to_row(m: WhatsAppRawMessageIn) -> dict:
+    return {
+        "group_name": m.group_name,
+        "sender_phone": m.sender_phone,
+        "sender_name": m.sender_name,
+        "timestamp": to_naive_utc(m.timestamp),
+        "body": _coerce_body(m.body),
+        "is_from_me": m.is_from_me,
+        "message_type": m.message_type,
+        "media_url": m.media_url,
+        "received_at": datetime.utcnow(),
+        "resolution_status": "pending",
+    }
 
 
 @router.post(
     "/messages",
-    status_code=status.HTTP_202_ACCEPTED,
-    response_model=WhatsAppMessagesResult,
+    status_code=status.HTTP_200_OK,
+    response_model=WhatsAppRawMessagesResult,
 )
-def receive_messages(
-    payload: Union[WhatsAppMessageBatch, WhatsAppMessageIn],
+async def receive_messages(
+    payload: Union[WhatsAppRawMessageBatch, WhatsAppRawMessageIn],
     x_webhook_secret: Optional[str] = Header(None),
     db: Session = Depends(get_db),
 ):
+    """Ingest one message or a batch of up to MAX_BATCH_SIZE. Idempotent.
+
+    Status semantics (matches intern spec):
+      - 200  on success (per-row dedupe is normal, not an error)
+      - 401  bad / missing secret
+      - 422  schema violation (FastAPI handles this before we run)
+      - 413  batch larger than MAX_BATCH_SIZE
+      - 5xx  real DB / commit error — intern's backoff retries kick in
+    """
     _verify_secret(x_webhook_secret)
 
-    items = payload.messages if isinstance(payload, WhatsAppMessageBatch) else [payload]
-    phone_to_shop = build_phone_to_shop(db)
-    group_cache: dict = {}
+    items: List[WhatsAppRawMessageIn] = (
+        payload.messages if isinstance(payload, WhatsAppRawMessageBatch) else [payload]
+    )
 
-    inserted = updated = 0
-    failed: list = []
-    accepted_ids: list = []
+    # Pydantic max_length=500 already gives us 422 for oversize batches at
+    # parse time. We re-check here to emit 413 (per spec) when callers
+    # somehow build the request manually past that boundary.
+    if len(items) > MAX_BATCH_SIZE:
+        raise HTTPException(413, f"batch too large: {len(items)} > {MAX_BATCH_SIZE}")
 
-    for m in items:
-        mid = m.message_id or _derive_message_id(m)
-        try:
-            with db.begin_nested():
-                wag = _resolve_group(db, group_cache, m.group_id, m.group_name)
-                ts = to_naive_utc(m.timestamp)
-                if wag and ts and (wag.last_activity_at is None or ts > wag.last_activity_at):
-                    wag.last_activity_at = ts
+    rows = [_to_row(m) for m in items]
 
-                shop_url = wag.shop_url if wag else None
-                if shop_url is None and m.sender_phone:
-                    shop_url = phone_to_shop.get(norm_phone(m.sender_phone))
+    # Bulk INSERT ... ON CONFLICT DO NOTHING. The natural-key constraint
+    # (group_name, sender_phone, timestamp, body) makes this idempotent.
+    # RETURNING gives us the count of actually-inserted rows so we can
+    # report duplicates without re-querying.
+    try:
+        if rows:
+            stmt = (
+                sqlite_insert(WhatsAppRawMessage)
+                .values(rows)
+                .on_conflict_do_nothing(
+                    index_elements=["group_name", "sender_phone", "timestamp", "body"]
+                )
+                .returning(WhatsAppRawMessage.id)
+            )
+            result = db.execute(stmt)
+            inserted_ids = [row[0] for row in result.fetchall()]
+        else:
+            inserted_ids = []
+        db.flush()
+    except Exception as e:
+        db.rollback()
+        logger.exception("wa.messages: bulk insert failed")
+        # Real DB error → 5xx so the intern's backoff retries.
+        raise HTTPException(500, f"insert failed: {type(e).__name__}: {e}")
 
-                row = db.get(WhatsAppMessage, mid)
-                if row is None:
-                    row = WhatsAppMessage(message_id=mid)
-                    db.add(row)
-                    is_new = True
-                else:
-                    is_new = False
+    inserted_count = len(inserted_ids)
+    duplicates = len(rows) - inserted_count
 
-                row.group_id = m.group_id
-                row.group_name = m.group_name
-                row.sender_phone = m.sender_phone
-                row.sender_name = m.sender_name
-                row.timestamp = ts
-                row.body = m.body
-                row.is_from_me = m.is_from_me
-                row.message_type = m.message_type
-                row.reply_to_message_id = m.reply_to_message_id
-                row.media_url = m.media_url
-                row.media_mime_type = m.media_mime_type
-                row.media_caption = m.media_caption
-                row.is_edited = m.is_edited
-                row.is_deleted = m.is_deleted
-                row.raw = json.dumps(m.raw, ensure_ascii=False) if m.raw else None
-                row.shop_url = shop_url
-
-            if is_new:
-                inserted += 1
+    # Inline resolution — only for the rows we just inserted. Skipping
+    # already-existing rows here is the right call: their resolution_status
+    # was handled when they were originally inserted. The reprocess script
+    # is the way to revisit them.
+    resolved = pending = 0
+    if inserted_ids:
+        new_rows = (
+            db.query(WhatsAppRawMessage)
+            .filter(WhatsAppRawMessage.id.in_(inserted_ids))
+            .all()
+        )
+        for r in new_rows:
+            shop_url, method = resolve_whatsapp_message(
+                db,
+                sender_phone=r.sender_phone,
+                group_name=r.group_name,
+                evidence_table="whatsapp_raw_messages",
+                evidence_id=str(r.id),
+            )
+            r.processed_at = datetime.utcnow()
+            if shop_url and shop_url != "conflict":
+                r.resolved_shop_url = shop_url
+                r.resolution_status = "resolved"
+                r.resolution_method = method
+                resolved += 1
+            elif shop_url == "conflict":
+                r.resolution_status = "conflict"
+                r.resolution_method = method
+                pending += 0  # not pending — surfaced in /admin/conflicts
             else:
-                updated += 1
-            accepted_ids.append(mid)
-        except Exception as e:
-            logger.exception("wa.messages: failed message_id=%s", mid)
-            failed.append({"message_id": mid, "error": f"{type(e).__name__}: {e}"})
+                # Spec: failed resolution → 'pending', NOT 'unresolvable'.
+                # The graph keeps growing as more events arrive; the
+                # reprocessor revisits these rows.
+                r.resolution_status = "pending"
+                r.resolution_method = method
+                pending += 1
 
     try:
         db.commit()
@@ -184,15 +184,14 @@ def receive_messages(
         raise HTTPException(500, f"commit failed: {type(e).__name__}: {e}")
 
     logger.info(
-        "wa.messages received=%d inserted=%d updated=%d failed=%d",
-        len(items), inserted, updated, len(failed),
+        "wa.messages received=%d duplicates=%d resolved=%d pending=%d",
+        len(items), duplicates, resolved, pending,
     )
-    return WhatsAppMessagesResult(
+    return WhatsAppRawMessagesResult(
         received=len(items),
-        inserted=inserted,
-        updated=updated,
-        failed=failed,
-        accepted_ids=accepted_ids,
+        duplicates=duplicates,
+        resolved=resolved,
+        pending=pending,
     )
 
 
@@ -206,6 +205,9 @@ def receive_group_event(
     x_webhook_secret: Optional[str] = Header(None),
     db: Session = Depends(get_db),
 ):
+    """Group lifecycle events. The bridge currently does not feed this
+    endpoint, but it's wired so we can turn membership tracking on later
+    without changing the intern's contract."""
     _verify_secret(x_webhook_secret)
 
     changed_at = to_naive_utc(payload.changed_at)
@@ -228,7 +230,6 @@ def receive_group_event(
         elif payload.group_name:
             wag.group_name = payload.group_name
         applied = True
-    # members_added/removed: log only; membership table not modeled yet
 
     try:
         db.commit()

@@ -16,3 +16,7 @@ services:
         sync: false
       - key: FREJUN_API_KEY
         sync: false
+      - key: WHATSAPP_WEBHOOK_SECRET
+        sync: false
+      - key: ADMIN_SECRET
+        sync: false
