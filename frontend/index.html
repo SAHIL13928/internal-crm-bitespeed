@@ -3,6 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- API base URL. Override per-deploy by editing the `content` attribute.
+       Default = the production Render backend; the script below also auto-
+       detects same-origin deploys (the existing /app mount on Render). -->
+  <meta name="api-base" content="https://internal-crm-bitespeed.onrender.com">
   <title>CS-CRM</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
@@ -97,7 +101,19 @@
 <div id="toast" class="hidden fixed bottom-5 right-5 bg-gray-900 text-white text-xs px-3 py-2 rounded shadow-lg z-50"></div>
 
 <script>
-const API = location.origin.replace(/\/app.*/, '');
+// API base resolution, in priority order:
+//   1. ?api=<url> in the page query string  — handy for ad-hoc testing
+//   2. <meta name="api-base"> in <head>      — set per-deploy (Vercel etc.)
+//   3. window.location.origin                — same-origin (Render /app mount)
+//      — only used when the page is served over http(s); falls through on file://
+const API = (() => {
+  const qs = new URLSearchParams(location.search).get('api');
+  if (qs) return qs.replace(/\/$/, '');
+  const meta = document.querySelector('meta[name="api-base"]');
+  if (meta && meta.content) return meta.content.replace(/\/$/, '');
+  if (location.protocol.startsWith('http')) return location.origin;
+  return 'https://internal-crm-bitespeed.onrender.com';
+})();
 
 // ── tiny utilities ─────────────────────────────────────────────────────────
 const $ = (sel) => document.querySelector(sel);

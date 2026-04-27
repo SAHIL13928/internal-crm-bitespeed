@@ -35,20 +35,21 @@ DEFAULT_DEPTH = 3
 # Identity.value is the canonical form per kind. Normalize at the API
 # boundary so {kind, value} truly identifies a node — otherwise "+91..." vs
 # "91..." vs "(+91) ..." would each be distinct nodes.
-import re
-
-_PHONE_DIGITS = re.compile(r"\D+")
+from .utils import norm_phone as _norm_phone
 
 
 def normalize(kind: str, value: Optional[str]) -> Optional[str]:
+    """Canonical form per kind. Phone normalization delegates to
+    `utils.norm_phone` so identity graph and `phone_to_shop` agree
+    on what counts as the same phone (Indian numbers with/without
+    country code collapse to the last-10)."""
     if value is None:
         return None
     v = value.strip()
     if not v:
         return None
     if kind == "phone":
-        d = _PHONE_DIGITS.sub("", v)
-        return d or None
+        return _norm_phone(v)
     if kind == "email":
         return v.lower()
     if kind == "shop_url":

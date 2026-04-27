@@ -11,11 +11,28 @@ _PHONE_DIGITS = re.compile(r"\D+")
 
 
 def norm_phone(p: Optional[str]) -> Optional[str]:
-    """Strip everything but digits. None/empty -> None."""
+    """Canonical phone digits for cross-source matching.
+
+    1. Strip non-digits.
+    2. If the result is 11–13 digits (likely an Indian mobile with country
+       code), keep just the last 10. Indian merchant phones arrive as a
+       mix of "9999999999" and "+919999999999" / "919999999999" across
+       sources (master CSV, finance sheet, WhatsApp, FreJun); collapsing
+       to the last-10 makes them match.
+    3. Anything 10 digits or under stays as-is.
+    4. Anything longer than 13 digits stays as-is — likely a true
+       international number where the leading digits matter.
+
+    Returns None for empty input.
+    """
     if not p:
         return None
     digits = _PHONE_DIGITS.sub("", p)
-    return digits or None
+    if not digits:
+        return None
+    if 11 <= len(digits) <= 13:
+        return digits[-10:]
+    return digits
 
 
 def to_naive_utc(dt: Optional[datetime]) -> Optional[datetime]:

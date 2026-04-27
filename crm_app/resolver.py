@@ -20,11 +20,20 @@ from .models import WhatsAppGroup
 from .utils import build_phone_to_shop, norm_phone
 
 
-def _static_lookup_phone(db: Session, phone: Optional[str]) -> Optional[str]:
-    """Direct match against contacts.phone. Returns shop_url or None."""
+def _static_lookup_phone(
+    db: Session,
+    phone: Optional[str],
+    phone_to_shop: Optional[dict] = None,
+) -> Optional[str]:
+    """Direct match against contacts.phone. Returns shop_url or None.
+
+    `phone_to_shop` is an optional precomputed dict. Pass it in tight
+    loops (bulk backfill, batch ingest) to avoid an O(N×M) rebuild
+    per row. Falls back to building the map per-call when omitted —
+    fine for one-off requests."""
     if not phone:
         return None
-    p2s = build_phone_to_shop(db)
+    p2s = phone_to_shop if phone_to_shop is not None else build_phone_to_shop(db)
     return p2s.get(norm_phone(phone))
 
 
@@ -122,9 +131,11 @@ def resolve_call(
     counterparty_phone: Optional[str],
     evidence_table: str = "calls",
     evidence_id: Optional[str] = None,
+    phone_to_shop: Optional[dict] = None,
 ) -> Tuple[Optional[str], str]:
-    """FreJun calls only have a counterparty phone. Same pattern as WA."""
-    by_phone = _static_lookup_phone(db, counterparty_phone)
+    """FreJun calls only have a counterparty phone. Same pattern as WA.
+    Pass `phone_to_shop` in bulk loops (see _static_lookup_phone)."""
+    by_phone = _static_lookup_phone(db, counterparty_phone, phone_to_shop)
     if by_phone:
         _grow_graph(db, counterparty_phone, None, by_phone, evidence_table, evidence_id)
         return by_phone, "static_directory_phone"

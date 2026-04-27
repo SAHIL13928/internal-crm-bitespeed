@@ -7,7 +7,12 @@ __pycache__/
 crm.db
 logs/
 
-# Large data dumps — managed out-of-band, not source-controlled
-data/inputs/*.json
-data/inputs/*.csv
+# data/scratch contains reviewer-only artifacts — kept out of git.
 data/scratch/
+
+# Note on data/inputs/:
+# We intentionally commit the small static-directory inputs (CSVs ~5MB
+# total, Fireflies meeting JSONs ~18MB) so Render free tier — which has
+# no persistent disk — can rebuild crm.db on every cold start via the
+# bootstrap script. Anything new + sensitive should be added to
+# data/scratch/ instead.

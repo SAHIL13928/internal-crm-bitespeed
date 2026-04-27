@@ -125,6 +125,46 @@ def test_phone_normalization(tmp_app):
         db.close()
 
 
+def test_indian_phone_with_and_without_country_code_match(tmp_app):
+    """Regression: '9999999999' (10-digit) and '919999999999' (12-digit
+    with country code) must resolve to the same shop. This was broken
+    until we canonicalized norm_phone to last-10-digits."""
+    db_module = tmp_app["db_module"]
+    from crm_app.identity import add_binding, resolve_shop_url_for
+    from crm_app.models import Contact, Identity, Shop
+    from crm_app.utils import build_phone_to_shop, norm_phone
+
+    # 1. Identity-graph path
+    db = db_module.SessionLocal()
+    try:
+        add_binding(
+            db, "phone", "9999999999", "shop_url", "acme.com",
+            source="static_directory", evidence_table="contacts", evidence_id="1",
+        )
+        db.commit()
+        # Same logical number, sent in different formats
+        assert resolve_shop_url_for(db, "phone", "919999999999") == "acme.com"
+        assert resolve_shop_url_for(db, "phone", "+91 99999 99999") == "acme.com"
+        # And only one phone identity exists
+        assert db.query(Identity).filter_by(kind="phone").count() == 1
+    finally:
+        db.close()
+
+    # 2. phone_to_shop static-directory path (the FreJun call binder)
+    db = db_module.SessionLocal()
+    try:
+        db.add(Shop(shop_url="beta.com"))
+        db.add(Contact(shop_url="beta.com", phone="+91 88888 88888"))
+        db.commit()
+        p2s = build_phone_to_shop(db)
+        # Lookups in either format should both hit beta.com
+        assert p2s.get(norm_phone("8888888888")) == "beta.com"
+        assert p2s.get(norm_phone("918888888888")) == "beta.com"
+        assert p2s.get(norm_phone("+91 88888 88888")) == "beta.com"
+    finally:
+        db.close()
+
+
 def test_reprocessor_revisits_pending_after_new_binding(tmp_app):
     """Send an unresolvable WA message (no contact seeded → pending). Then
     add a binding manually and run the reprocess script. The previously-
