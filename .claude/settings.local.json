@@ -96,7 +96,9 @@
       "Bash(CRM_DB_PATH=/tmp/bootstrap_test.db python scripts/bootstrap_render.py)",
       "Bash(python)",
       "Bash(python -m pytest tests/test_frejun_webhook.py -v)",
-      "Bash(python -m pytest tests/ -q)"
+      "Bash(python -m pytest tests/ -q)",
+      "Bash(python -m uvicorn crm_app.main:app --host 127.0.0.1 --port 8765)",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(f\\\\\"shops={d['shops']}  meetings={d['meetings']}  calls={d['calls']}  identities={d['identity_graph']['identities']}\\\\\"\\)\")"
     ]
   }
 }

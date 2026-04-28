@@ -102,16 +102,17 @@
 
 <script>
 // API base resolution, in priority order:
-//   1. ?api=<url> in the page query string  — handy for ad-hoc testing
-//   2. <meta name="api-base"> in <head>      — set per-deploy (Vercel etc.)
-//   3. window.location.origin                — same-origin (Render /app mount)
-//      — only used when the page is served over http(s); falls through on file://
+//   1. ?api=<url> in the page query string  — explicit per-tab override
+//   2. window.location.origin                — same-origin (default; works on
+//      Render /app mount AND local uvicorn at http://127.0.0.1:8765/app/)
+//   3. <meta name="api-base"> in <head>      — fallback for cross-origin
+//      deploys (e.g. Vercel) and file:// previews
 const API = (() => {
   const qs = new URLSearchParams(location.search).get('api');
   if (qs) return qs.replace(/\/$/, '');
+  if (location.protocol.startsWith('http')) return location.origin;
   const meta = document.querySelector('meta[name="api-base"]');
   if (meta && meta.content) return meta.content.replace(/\/$/, '');
-  if (location.protocol.startsWith('http')) return location.origin;
   return 'https://internal-crm-bitespeed.onrender.com';
 })();
 
