@@ -51,7 +51,7 @@ from .schemas import (
     WhatsAppGroupOut,
 )
 from .admin import router as admin_router
-from .webhooks import frejun_router, whatsapp_router
+from .webhooks import frejun_router, periskope_router, whatsapp_router
 
 logger = logging.getLogger("crm")
 if not logger.handlers:
@@ -86,6 +86,7 @@ app.add_middleware(
 
 app.include_router(whatsapp_router)
 app.include_router(frejun_router)
+app.include_router(periskope_router)
 app.include_router(admin_router)
 
 
@@ -339,6 +340,7 @@ def health(db: Session = Depends(get_db)):
             "last_message_received_at": last_msg_ts.isoformat() if last_msg_ts else None,
             "last_group_event_received_at": last_evt_ts.isoformat() if last_evt_ts else None,
             "webhook_secret_configured": bool(os.environ.get("WHATSAPP_WEBHOOK_SECRET")),
+            "periskope_signing_secret_configured": bool(os.environ.get("PERISKOPE_SIGNING_SECRET")),
         },
         "identity_graph": {
             "identities": db.query(func.count(Identity.id)).scalar() or 0,

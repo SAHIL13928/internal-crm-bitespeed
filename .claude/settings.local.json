@@ -98,7 +98,10 @@
       "Bash(python -m pytest tests/test_frejun_webhook.py -v)",
       "Bash(python -m pytest tests/ -q)",
       "Bash(python -m uvicorn crm_app.main:app --host 127.0.0.1 --port 8765)",
-      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(f\\\\\"shops={d['shops']}  meetings={d['meetings']}  calls={d['calls']}  identities={d['identity_graph']['identities']}\\\\\"\\)\")"
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(f\\\\\"shops={d['shops']}  meetings={d['meetings']}  calls={d['calls']}  identities={d['identity_graph']['identities']}\\\\\"\\)\")",
+      "WebFetch(domain:docs.periskope.app)",
+      "Bash(python -m pytest tests/test_periskope_webhook.py -v)",
+      "Bash(python -m pytest tests/test_periskope_webhook.py::test_chat_created_then_message_uses_learned_name -v)"
     ]
   }
 }

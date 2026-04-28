@@ -23,3 +23,5 @@ services:
         sync: false
       - key: ADMIN_SECRET
         sync: false
+      - key: PERISKOPE_SIGNING_SECRET
+        sync: false

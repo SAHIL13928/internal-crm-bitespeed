@@ -20,6 +20,7 @@ def tmp_app(tmp_path, monkeypatch):
     monkeypatch.setenv("WHATSAPP_WEBHOOK_SECRET", "test-secret")
     monkeypatch.setenv("FREJUN_WEBHOOK_SECRET", "frejun-test-secret")
     monkeypatch.setenv("ADMIN_SECRET", "admin-test-secret")
+    monkeypatch.setenv("PERISKOPE_SIGNING_SECRET", "test-periskope-secret")
 
     # Wipe any cached crm_app modules so they re-bind to the new DB path.
     for mod in list(sys.modules.keys()):
