@@ -3,63 +3,123 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <!-- Override per-deploy if frontend isn't same-origin with the API. -->
   <meta name="api-base" content="">
-  <title>CS-CRM</title>
+  <title>Customer CRM</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-    .tab-active { color: #1f2937; border-bottom: 2px solid #1f2937; font-weight: 600; }
-    .pill { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 9999px; font-size: 11px; font-weight: 500; }
-    .speakerA { background: #eef2ff; border-left: 3px solid #6366f1; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #0f172a; }
+
+    /* Health pills — match the reference palette */
+    .pill { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 9999px; font-size: 11px; font-weight: 500; line-height: 18px; }
+    .pill-risk      { background: #fee2e2; color: #b91c1c; }
+    .pill-healthy   { background: #dcfce7; color: #15803d; }
+    .pill-dnc       { background: #e2e8f0; color: #475569; }
+    .pill-concerned { background: #ffedd5; color: #c2410c; }
+    .pill-unknown   { background: #f1f5f9; color: #64748b; }
+
+    /* Priority + status pills */
+    .pill-high   { background: #fee2e2; color: #b91c1c; }
+    .pill-med    { background: #fef3c7; color: #b45309; }
+    .pill-low    { background: #dbeafe; color: #1d4ed8; }
+    .pill-open   { background: #fee2e2; color: #b91c1c; }
+    .pill-progress { background: #fef3c7; color: #b45309; }
+    .pill-resolved { background: #dcfce7; color: #15803d; }
+    .pill-attention { background: #ffedd5; color: #c2410c; }
+    .pill-info     { background: #e0e7ff; color: #4338ca; }
+
+    /* Direction */
+    .pill-out { background: #dbeafe; color: #1d4ed8; }
+    .pill-in  { background: #ede9fe; color: #6d28d9; }
+
+    /* Topic pills (small, gray) */
+    .topic { display: inline-block; padding: 1px 8px; border-radius: 9999px; font-size: 11px; background: #f1f5f9; color: #475569; }
+
+    /* Tab styling */
+    .tab { padding: 10px 14px; font-size: 14px; color: #64748b; border-bottom: 2px solid transparent; cursor: pointer; }
+    .tab:hover { color: #0f172a; }
+    .tab-active { color: #0f172a; border-bottom-color: #0f172a; font-weight: 600; }
+
+    /* Date-range filter pills */
+    .filter-pill { padding: 4px 12px; border-radius: 9999px; font-size: 12px; background: #f1f5f9; color: #475569; cursor: pointer; }
+    .filter-pill:hover { background: #e2e8f0; }
+    .filter-pill-active { background: #0f172a; color: white; }
+
+    /* Avatar (circular initials) */
+    .avatar { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 9999px; font-size: 10px; font-weight: 600; background: #e0e7ff; color: #4338ca; }
+    .avatar + .avatar { margin-left: -6px; border: 2px solid white; }
+
+    /* AI summary box */
+    .ai-box { background: linear-gradient(135deg, #eef2ff 0%, #f0fdf4 100%); border: 1px solid #c7d2fe; border-radius: 8px; padding: 14px; }
+
+    /* Speaker bubbles (WA threads) */
+    .speakerA { background: #f1f5f9; border-left: 3px solid #6366f1; }
     .speakerB { background: #f0fdf4; border-left: 3px solid #22c55e; }
-    .line-clamp-3 {
-      display: -webkit-box;
-      -webkit-line-clamp: 3;
-      -webkit-box-orient: vertical;
-      overflow: hidden;
-    }
+
+    .line-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .line-clamp-3 { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+
+    /* Card */
+    .card { background: white; border: 1px solid #e2e8f0; border-radius: 8px; }
+
+    /* Skeleton shimmer */
+    @keyframes shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+    .skel { background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%); background-size: 200% 100%; animation: shimmer 1.4s infinite; border-radius: 4px; }
   </style>
 </head>
-<body class="bg-gray-50 text-gray-900 min-h-screen">
+<body class="bg-slate-50 min-h-screen">
 
-<header class="border-b border-gray-200 bg-white px-5 py-3 flex items-center justify-between">
-  <div class="flex items-center gap-3">
-    <div class="w-8 h-8 rounded bg-gray-900 text-white text-sm font-semibold flex items-center justify-center">CS</div>
-    <div class="font-medium">CS-CRM</div>
+<!-- Top bar -->
+<header class="bg-white border-b border-slate-200 px-6 py-3">
+  <div class="max-w-screen-2xl mx-auto flex items-center justify-between">
+    <div class="flex items-center gap-4">
+      <div class="w-8 h-8 rounded bg-slate-900 text-white text-xs font-semibold flex items-center justify-center">CS</div>
+      <div>
+        <h1 class="text-base font-semibold leading-none">Customer CRM</h1>
+        <div class="text-xs text-slate-500 mt-0.5">Bitespeed merchant 360°</div>
+      </div>
+    </div>
+    <div class="text-xs text-slate-500" id="health-tag">Loading…</div>
   </div>
 </header>
 
-<div class="grid grid-cols-12 gap-0 min-h-[calc(100vh-57px)]">
-  <!-- Sidebar: search -->
-  <aside class="col-span-3 border-r border-gray-200 bg-white">
-    <div class="p-3 border-b border-gray-200">
-      <input id="q" type="search" placeholder="Search merchants…"
-             class="w-full px-3 py-2 border border-gray-300 rounded text-sm" />
+<div class="max-w-screen-2xl mx-auto grid grid-cols-12 gap-0">
+  <!-- Sidebar: search + merchant list -->
+  <aside class="col-span-3 border-r border-slate-200 bg-white">
+    <div class="p-4 border-b border-slate-200">
+      <input id="q" type="search" placeholder="Search a merchant"
+             class="w-full px-3 py-2 border border-slate-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-slate-300" />
+      <div class="text-[11px] text-slate-400 mt-2">Type a shopUrl or brand · Enter to open</div>
     </div>
-    <div id="results" class="overflow-y-auto" style="max-height: calc(100vh - 130px);"></div>
+    <div id="results" class="overflow-y-auto" style="max-height: calc(100vh - 145px);"></div>
   </aside>
 
   <!-- Main panel -->
-  <main class="col-span-9 p-5">
-    <div id="merchant-header" class="hidden mb-4"></div>
-    <nav id="tabs" class="hidden border-b border-gray-200 mb-4 flex gap-5">
-      <button data-tab="overview" class="py-3 text-gray-500 hover:text-gray-900 tab-active">Overview</button>
-      <button data-tab="meetings" class="py-3 text-gray-500 hover:text-gray-900">Meetings</button>
-      <button data-tab="calls"    class="py-3 text-gray-500 hover:text-gray-900">Calls</button>
-      <button data-tab="whatsapp" class="py-3 text-gray-500 hover:text-gray-900">WhatsApp</button>
-      <button data-tab="timeline" class="py-3 text-gray-500 hover:text-gray-900">Timeline</button>
-    </nav>
-    <section id="tab-body">
-      <div class="text-sm text-gray-500 italic py-12 text-center">
-        Search and select a merchant to begin.
-      </div>
-    </section>
+  <main class="col-span-9 p-6">
+    <div id="merchant-shell" class="hidden">
+      <!-- Merchant header -->
+      <div id="merchant-header" class="mb-4"></div>
+      <!-- KPI strip -->
+      <div id="kpi-strip" class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 mb-5"></div>
+      <!-- Tabs -->
+      <nav id="tabs" class="border-b border-slate-200 mb-5 flex gap-1">
+        <button data-tab="upcoming" class="tab tab-active">Upcoming</button>
+        <button data-tab="activity" class="tab">Activity</button>
+        <button data-tab="whatsapp" class="tab">WhatsApp</button>
+        <button data-tab="issues"   class="tab">Issues</button>
+        <button data-tab="notes"    class="tab">Notes</button>
+      </nav>
+      <!-- Tab body -->
+      <section id="tab-body"></section>
+    </div>
+
+    <div id="empty-state" class="text-center py-24">
+      <div class="text-slate-400 text-sm">Search and select a merchant to begin.</div>
+      <div class="text-slate-300 text-xs mt-2">Or browse the recent list on the left.</div>
+    </div>
   </main>
 </div>
 
-<div id="toast"
-     class="hidden fixed bottom-5 right-5 bg-gray-900 text-white text-xs px-3 py-2 rounded shadow-lg z-50"></div>
+<div id="toast" class="hidden fixed bottom-5 right-5 bg-slate-900 text-white text-xs px-3 py-2 rounded shadow-lg z-50"></div>
 
 <script type="module" src="/src/main.ts"></script>
 </body>
