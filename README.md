@@ -1,166 +1,110 @@
-# CS-CRM — identity-graph runbook
+# CS-CRM — Bitespeed merchant 360°
 
-> The full backend reference lives in **CRM_README.md** (endpoints, ETL,
-> setup). This README focuses on the identity-graph layer + WhatsApp raw
-> ingestion added in this iteration.
+Internal customer-success CRM. Per-merchant view of meetings, calls,
+WhatsApp threads, contacts, and KPIs. Powered by FreJun (calls),
+Fireflies (meetings), and Periskope (WhatsApp).
 
-## Why this exists
+```
+                                                ┌──────────────────┐
+   FreJun webhook ──────► /webhooks/frejun ───►│                  │
+   Periskope webhook ───► /webhooks/periskope ►│  FastAPI backend │
+   Periskope REST  ─────► scripts/backfill ───►│  + identity graph │──► Frontend (TS)
+   Static CSVs ─────────► run_etl.py ─────────►│  on SQLite/Postgres │   /app/
+                                                └──────────────────┘
+```
 
-Each comms source uses a different key for "which merchant is this?":
+## Quick start (local)
+
+```bash
+# 1. Activate venv + install deps
+venv\Scripts\activate         # Windows
+pip install -r requirements.txt
+
+# 2. Make sure .env has the secrets (see docs/deploy.md for the list)
+# 3. Build the DB from the committed input files
+python scripts/bootstrap_render.py
+
+# 4. Run the API
+python -m uvicorn crm_app.main:app --port 8765
+
+# 5. Open http://127.0.0.1:8765/app/  (basic auth — set API_USERNAME/PASSWORD in .env)
+```
+
+## Repo layout
+
+```
+crm_app/                     FastAPI backend
+  main.py                    app, middleware, all read routes
+  auth.py                    HTTP Basic dependency + middleware gate
+  db.py                      SQLA engine + session
+  models.py                  ORM (Shop, Contact, Meeting, Call,
+                             WhatsAppRawMessage, Identity, Binding, …)
+  schemas.py                 Pydantic request/response
+  utils.py / time_utils.py   shared helpers
+  resolver.py                per-event shop_url resolution
+  identity.py                identity graph + BFS resolver
+  admin.py                   /admin/conflicts (header-protected)
+  webhooks/
+    frejun.py                /webhooks/frejun/calls
+    whatsapp.py              /webhooks/whatsapp/messages (intern path)
+    periskope.py             /webhooks/periskope (HMAC-verified)
+
+etl/                         Bulk loaders (CSV/JSON → DB)
+scripts/                     One-off mapping & backfill tools (see scripts/README.md)
+tests/                       pytest — webhooks, identity graph, ingestion
+data/inputs/                 Committed seed data (CSVs, Fireflies dumps)
+migrations/                  Hand-rolled SQL — kept in sync with ORM
+docs/                        Long-form docs (deploy, integrations, archive)
+frontend/                    TypeScript SPA (Vite + Tailwind via CDN)
+render.yaml                  Render service config
+```
+
+## Identity graph — the core mapping insight
+
+Each comms source uses a different key for "which merchant?":
 
 - **FreJun** — phone number
 - **Fireflies** — meeting link + attendee emails
-- **WhatsApp bridge** — group name + sender phone
+- **Periskope** — group name + sender phone
+- **Static directory** — operator-curated CSV
 
-Fuzzy-matching merchant *names* across sources is unreliable. Instead we
-build an **identity graph**:
+The fix is an **identity graph**: typed nodes (`shop_url`, `phone`,
+`email`, `meeting_link`, `group_name`) connected by observed
+co-occurrences. Connected components = same merchant. New evidence
+retroactively resolves orphan rows. We never add edges from string
+fuzziness — only from real co-occurrence.
 
-- **Nodes** are typed: `shop_url`, `phone`, `email`, `meeting_link`, `group_name`.
-- **Edges** (bindings) are observed co-occurrences in real events
-  (a phone seen on a call to a merchant; a group name seen in a WA message
-  whose sender phone is in our static directory; etc.).
-- A **connected component** is one merchant.
-- Adding a single edge can retroactively resolve hundreds of orphan rows.
+See `crm_app/identity.py` and `crm_app/resolver.py`.
 
-We never add an edge from string fuzziness — only from co-occurrence
-in real events (or seeded from the static directory the operations team
-maintains by hand).
+## Where to read next
 
-## Architecture at a glance
-
-```
-                    ┌───────────────────────────────┐
-   WA bridge        │  POST /webhooks/whatsapp/     │
-   intern    ─────► │  messages                     │
-                    │                               │
-   FreJun           │  POST /webhooks/frejun/calls  │
-   webhook   ─────► │                               │
-                    │                               │
-   FreJun     ────► │  scripts/backfill_frejun_     │
-   backfill         │  calls.py                     │
-                    └────────┬──────────────────────┘
-                             │
-                             ▼
-              ┌─────────────────────────────┐
-              │ crm_app/resolver.py         │
-              │  • static directory match   │
-              │  • identity-graph BFS       │
-              │  • grow graph on resolve    │
-              └────────┬────────────────────┘
-                       │
-            ┌──────────┴──────────┐
-            ▼                     ▼
-    whatsapp_raw_messages    identities + bindings
-    calls.shop_url           (the graph)
-```
-
-Source files:
-
-| File                              | Role                                                |
-|-----------------------------------|-----------------------------------------------------|
-| `crm_app/models.py`               | ORM (incl. `WhatsAppRawMessage`, `Identity`, `Binding`) |
-| `crm_app/identity.py`             | `add_binding`, `resolve_shop_url_for`, `find_conflicts` |
-| `crm_app/resolver.py`             | Per-event resolution used by webhooks (static → graph) |
-| `crm_app/webhooks/whatsapp.py`    | `/messages` + `/groups` handlers                    |
-| `crm_app/webhooks/frejun.py`      | `/calls` handler                                    |
-| `crm_app/admin.py`                | `/api/admin/conflicts` and orphan-coverage tools     |
-| `migrations/0001_*.sql`           | Hand-rolled DDL — kept in sync with ORM as the canonical schema doc |
-| `scripts/recompute_static_directory_bindings.py` | Re-seed graph from `shops`     |
-| `scripts/reprocess_pending.py`    | Re-run resolution on `pending` raw messages         |
-| `tests/test_whatsapp_ingestion.py`, `tests/test_identity_graph.py` | pytest |
-
-## Runbook
-
-### "This call/message is bound to the wrong merchant — why?"
-
-1. Pull the offending row's `shop_url` and the `counterparty_phone` (or
-   `sender_phone` / `group_name`).
-2. Ask the graph to explain itself:
-   ```bash
-   python -c "
-   from crm_app.db import SessionLocal
-   from crm_app.identity import resolve_shop_url_for, _shop_urls_in_component
-   db = SessionLocal()
-   print('resolves to:', resolve_shop_url_for(db, 'phone', '+919xxx'))
-   print('component:  ', _shop_urls_in_component(db, 'phone', '+919xxx'))
-   "
-   ```
-   If it returns `'conflict'` you'll see >1 shop in the component — that's
-   the actual issue (bad data in the static directory, usually the same
-   phone listed under two merchants).
-3. Hit `/api/admin/conflicts` (or `/admin/conflicts`) with the
-   `X-Admin-Secret` header to see the operator-friendly conflict list.
-
-### "I want to manually pin this phone to this shop"
-
-```python
-from crm_app.db import SessionLocal
-from crm_app.identity import add_binding
-db = SessionLocal()
-add_binding(
-    db,
-    "phone", "+919999999999",
-    "shop_url", "merchant.myshopify.com",
-    source="manual",
-    confidence=1.0,
-    evidence_table="manual",
-    evidence_id="ticket-2026-04-27-A",   # something stable & traceable
-)
-db.commit()
-```
-
-The new edge takes effect for the next event. To bind already-pending WA
-messages, run `python scripts/reprocess_pending.py`.
-
-### "I edited the master shops CSV — how do I rebuild graph seeds?"
-
-```bash
-python run_etl.py shops                              # reload shops/contacts/groups
-python scripts/recompute_static_directory_bindings.py
-```
-
-Both are idempotent.
-
-### Reprocess pending WA messages after a graph update
-
-```bash
-python scripts/reprocess_pending.py
-```
-
-Walks every `whatsapp_raw_messages` row with `resolution_status='pending'`
-and re-runs resolution. Newly resolved rows transition to `'resolved'`;
-still-unresolved rows stay `'pending'` (we never downgrade to
-`'unresolvable'` — new bindings may arrive later).
-
-## Environment variables
-
-| Var                          | Required | Purpose                              |
-|------------------------------|----------|--------------------------------------|
-| `WHATSAPP_WEBHOOK_SECRET`    | yes      | Bridge auth on `/webhooks/whatsapp/messages` |
-| `FREJUN_WEBHOOK_SECRET`      | yes      | FreJun auth on `/webhooks/frejun/calls`      |
-| `ADMIN_SECRET`               | yes      | Header auth for `/admin/conflicts`           |
-| `FREJUN_API_KEY`             | for backfill | Used by `scripts/backfill_frejun_calls.py` and `etl/load_frejun.py` |
-| `FIREFLIES_API_KEY`          | for ETL  | Fireflies meeting fetcher            |
-| `CRM_DB_PATH`                | optional | Override SQLite path (used by tests) |
+- **Production deploy on AWS (App Runner + RDS):** [docs/aws.md](docs/aws.md)
+- **Production deploy on Render (alternative):** [docs/deploy.md](docs/deploy.md)
+- **Backend reference (endpoints, ETL stages):** [docs/backend.md](docs/backend.md)
+- **Periskope native webhook (for the WA bridge intern):** [docs/whatsapp_periskope_native.md](docs/whatsapp_periskope_native.md)
+- **Scripts catalog:** [scripts/README.md](scripts/README.md)
 
 ## Tests
 
 ```bash
-python -m pytest tests/test_whatsapp_ingestion.py tests/test_identity_graph.py -v
+python -m pytest tests/ -q
 ```
 
-The two existing **smoke** scripts (`tests/smoke_test_*.py`) still run
-against a live server and exercise the broader API surface; they remain
-useful for production smoke-testing but are not part of the pytest run.
+Covers all four webhooks (FreJun, WA intern, Periskope, admin),
+identity-graph operations, edge cases for phone canonicalization, and
+edit/delete event flows. **34 tests, all passing.**
 
-## Status of the static-directory seed (snapshot 2026-04-27)
+## Status snapshot
 
-```
-identities: ~8,300
-bindings:   ~8,600
-```
-
-Conflicts present in the seed are surfaced at `/admin/conflicts` —
-typically Bitespeed account-manager phone numbers that got copied into
-multiple merchants' contact lists during the original ETL. Resolving them
-is a data-quality task for the ops team, not a code fix.
+|  | Coverage |
+|---|---:|
+| Shops in static directory | 1,683 |
+| Contacts | 11,750 |
+| WhatsApp chats imported | 4,346 |
+| WhatsApp messages backfilled | 472,449 |
+| WhatsApp messages resolved to a merchant | 365,614 (**77%**) |
+| WA chats bound to a merchant | 4,282 (**78%**) |
+| FreJun calls imported | 44,910 |
+| Calls bound to a merchant | 6,113 (14%) |
+| Fireflies meetings | 5,208 (incl. 166 upcoming extracted from WA invites) |
+| Identity graph nodes / edges | 9,519 / 14,694 |

@@ -18,6 +18,12 @@ CREATE TABLE IF NOT EXISTS whatsapp_raw_messages (
     is_from_me        BOOLEAN  NOT NULL DEFAULT 0,
     message_type      VARCHAR  NOT NULL,
     media_url         TEXT,
+    -- Periskope event-driven edit/delete tracking + provider-side stable id
+    source_message_id VARCHAR,
+    is_edited         BOOLEAN  NOT NULL DEFAULT 0,
+    edited_at         DATETIME,
+    is_deleted        BOOLEAN  NOT NULL DEFAULT 0,
+    deleted_at        DATETIME,
     received_at       DATETIME NOT NULL,
     processed_at      DATETIME,
     resolution_status VARCHAR  NOT NULL DEFAULT 'pending',
@@ -38,6 +44,8 @@ CREATE INDEX IF NOT EXISTS ix_whatsapp_raw_messages_resolution_status
     ON whatsapp_raw_messages(resolution_status);
 CREATE INDEX IF NOT EXISTS ix_whatsapp_raw_messages_resolved_shop_url
     ON whatsapp_raw_messages(resolved_shop_url);
+CREATE INDEX IF NOT EXISTS ix_whatsapp_raw_messages_source_message_id
+    ON whatsapp_raw_messages(source_message_id);
 
 CREATE TABLE IF NOT EXISTS identities (
     id    INTEGER PRIMARY KEY AUTOINCREMENT,

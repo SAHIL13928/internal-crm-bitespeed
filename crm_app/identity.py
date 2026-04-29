@@ -25,6 +25,7 @@ from typing import Iterable, Optional, Tuple
 from sqlalchemy.orm import Session
 
 from .models import Binding, Identity
+from .time_utils import utcnow_naive
 
 VALID_KINDS = {"shop_url", "phone", "email", "meeting_link", "group_name"}
 CONFLICT = "conflict"  # sentinel returned by resolve_shop_url_for on conflict
@@ -124,7 +125,7 @@ def add_binding(
         identity_b_id=b_id,
         source=source,
         confidence=confidence,
-        observed_at=observed_at or datetime.utcnow(),
+        observed_at=observed_at or utcnow_naive(),
         evidence_table=evidence_table,
         evidence_id=evidence_id,
     )

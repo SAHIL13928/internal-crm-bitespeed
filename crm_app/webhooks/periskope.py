@@ -17,7 +17,13 @@ against `x-periskope-signature` header. Secret in `PERISKOPE_SIGNING_SECRET`.
 
 Events handled:
   • message.created            → persisted as a raw message row
+  • message.updated            → existing row's body + is_edited updated
+                                 (looked up by source_message_id)
+  • message.deleted            → existing row's is_deleted set
   • chat.created               → WhatsAppGroup upsert by JID
+  • chat.notification.created  → recorded in whatsapp_group_events for
+                                 audit; member changes are NOT yet
+                                 reflected in contacts (TODO)
   • everything else            → 200 OK, ignored. Periskope's webhook
                                  console doesn't let us scope events
                                  perfectly; returning 200 keeps the
@@ -35,12 +41,12 @@ from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
-from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
-from ..db import get_db
-from ..models import WhatsAppGroup, WhatsAppRawMessage
+from ..db import get_db, insert_on_conflict_do_nothing
+from ..models import WhatsAppGroup, WhatsAppGroupEvent, WhatsAppRawMessage
 from ..resolver import resolve_whatsapp_message
+from ..time_utils import utcnow_naive
 from ..utils import to_naive_utc
 
 logger = logging.getLogger("crm.webhook.periskope")
@@ -206,17 +212,16 @@ def _handle_message_created(data: dict, db: Session) -> dict:
         "is_from_me": is_from_me,
         "message_type": msg_type,
         "media_url": media_url,
-        "received_at": datetime.utcnow(),
+        "source_message_id": data.get("message_id"),  # Periskope's stable id;
+                                                      # required for update/delete lookups.
+        "received_at": utcnow_naive(),
         "resolution_status": "pending",
     }
 
-    stmt = (
-        sqlite_insert(WhatsAppRawMessage)
-        .values([row])
-        .on_conflict_do_nothing(
-            index_elements=["group_name", "sender_phone", "timestamp", "body"]
-        )
-        .returning(WhatsAppRawMessage.id)
+    stmt = insert_on_conflict_do_nothing(
+        WhatsAppRawMessage, [row],
+        ["group_name", "sender_phone", "timestamp", "body"],
+        returning=WhatsAppRawMessage.id,
     )
     result = db.execute(stmt)
     inserted_ids = [r[0] for r in result.fetchall()]
@@ -232,7 +237,7 @@ def _handle_message_created(data: dict, db: Session) -> dict:
             evidence_table="whatsapp_raw_messages",
             evidence_id=str(new_row.id),
         )
-        new_row.processed_at = datetime.utcnow()
+        new_row.processed_at = utcnow_naive()
         if shop_url and shop_url != "conflict":
             new_row.resolved_shop_url = shop_url
             new_row.resolution_status = "resolved"
@@ -249,6 +254,104 @@ def _handle_message_created(data: dict, db: Session) -> dict:
         "inserted": len(inserted_ids),
         "duplicate": 1 if not inserted_ids else 0,
         "resolved": int(resolved),
+    }
+
+
+def _handle_message_updated(data: dict, db: Session) -> dict:
+    """Periskope fires this when the user edits a WA message. We update
+    the body in-place + flag it as edited so the dashboard can render
+    a discreet "(edited)" marker. If we never saw the original
+    message.created (we missed an event), log a warning and skip —
+    don't synthesize a row from update-only data because we'd be
+    guessing at fields like timestamp."""
+    msg_id = data.get("message_id")
+    new_body = data.get("body")
+    if not msg_id:
+        logger.warning("periskope.message.updated: missing message_id in payload")
+        return {"event": "message.updated", "skipped": True, "reason": "missing message_id"}
+
+    row = (
+        db.query(WhatsAppRawMessage)
+        .filter_by(source_message_id=msg_id)
+        .first()
+    )
+    if row is None:
+        logger.warning("periskope.message.updated: no row for source_message_id=%s "
+                       "(probably missed message.created)", msg_id)
+        return {"event": "message.updated", "skipped": True, "reason": "row not found"}
+
+    if new_body is not None:
+        row.body = new_body
+    row.is_edited = True
+    row.edited_at = utcnow_naive()
+    return {"event": "message.updated", "updated": 1, "row_id": row.id}
+
+
+def _handle_message_deleted(data: dict, db: Session) -> dict:
+    """Soft-delete: keep the row for audit (deleted messages are often
+    the most interesting ones in a CS context — what did the client
+    say and then retract?), just flag it. The dashboard renders these
+    with strikethrough."""
+    msg_id = data.get("message_id")
+    if not msg_id:
+        logger.warning("periskope.message.deleted: missing message_id")
+        return {"event": "message.deleted", "skipped": True, "reason": "missing message_id"}
+
+    row = (
+        db.query(WhatsAppRawMessage)
+        .filter_by(source_message_id=msg_id)
+        .first()
+    )
+    if row is None:
+        logger.warning("periskope.message.deleted: no row for source_message_id=%s", msg_id)
+        return {"event": "message.deleted", "skipped": True, "reason": "row not found"}
+
+    row.is_deleted = True
+    row.deleted_at = utcnow_naive()
+    return {"event": "message.deleted", "deleted": 1, "row_id": row.id}
+
+
+def _handle_chat_notification_created(data: dict, db: Session) -> dict:
+    """Group lifecycle events. Verified Periskope payload shape:
+        {chat_id, author, type, recipientids[], timestamp, ...}
+    where:
+      - `type` is the action (e.g. "remove", "add", "rename" …).
+      - `author` is the JID of the user who performed it.
+      - `recipientids` is the list of JIDs the action targeted.
+
+    We persist the raw payload to `whatsapp_group_events` for audit. The
+    `members` column on that table is JSON-encoded; we store recipientids
+    there so the existing schema doesn't need changing.
+
+    Add-events SHOULD eventually create candidate contacts under the
+    bound merchant (a new person joining a merchant's group is a contact
+    we should track). Holding off on that until we see real production
+    samples — the `type` enum isn't fully documented."""
+    chat_id = data.get("chat_id") or data.get("group_id")
+    notif_type = data.get("type") or "unknown"
+    author = data.get("author")
+    recipientids = data.get("recipientids") or []
+    changed_at = _parse_periskope_ts(data.get("timestamp") or data.get("created_at"))
+
+    members_blob = {"author": author, "recipientids": recipientids} if (author or recipientids) else None
+
+    ev = WhatsAppGroupEvent(
+        event_type=f"periskope:{notif_type}",
+        group_id=chat_id,
+        group_name=data.get("chat_name"),
+        members=json.dumps(members_blob, ensure_ascii=False) if members_blob else None,
+        changed_at=changed_at,
+        raw=json.dumps(data, ensure_ascii=False),
+    )
+    db.add(ev)
+    db.flush()
+    return {
+        "event": "chat.notification.created",
+        "recorded": True,
+        "event_id": ev.id,
+        "type": notif_type,
+        "author": author,
+        "recipient_count": len(recipientids),
     }
 
 
@@ -276,8 +379,14 @@ async def receive(
     try:
         if event == "message.created":
             result = _handle_message_created(data, db)
+        elif event == "message.updated":
+            result = _handle_message_updated(data, db)
+        elif event == "message.deleted":
+            result = _handle_message_deleted(data, db)
         elif event == "chat.created":
             result = _handle_chat_created(data, db)
+        elif event == "chat.notification.created":
+            result = _handle_chat_notification_created(data, db)
         else:
             # Subscribed by accident, or new event we don't handle yet.
             # 200 + log keeps Periskope's retry queue clean.

@@ -1,5 +1,3 @@
-from datetime import datetime
-
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
@@ -17,6 +15,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import relationship
 
 from .db import Base
+from .time_utils import utcnow_naive
 
 
 class Shop(Base):
@@ -31,8 +30,8 @@ class Shop(Base):
     dnc_revisit_on = Column(Date, nullable=True)
     account_manager = Column(String, nullable=True)
     confidence = Column(String, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow_naive)
+    updated_at = Column(DateTime, default=utcnow_naive, onupdate=utcnow_naive)
 
     contacts = relationship("Contact", back_populates="shop", cascade="all, delete-orphan")
     whatsapp_groups = relationship("WhatsAppGroup", back_populates="shop", cascade="all, delete-orphan")
@@ -140,7 +139,7 @@ class Issue(Base):
     source_ref = Column(String, nullable=True)       # related call/meeting id
     owner = Column(String, nullable=True)
     jira_ticket_id = Column(String, nullable=True)
-    opened_at = Column(DateTime, default=datetime.utcnow)
+    opened_at = Column(DateTime, default=utcnow_naive)
     resolved_at = Column(DateTime, nullable=True)
 
     shop = relationship("Shop", back_populates="issues")
@@ -155,7 +154,7 @@ class Note(Base):
     body = Column(Text)
     is_followup = Column(Boolean, default=False)
     due_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow_naive)
 
     shop = relationship("Shop", back_populates="notes")
 
@@ -179,7 +178,7 @@ class WhatsAppMessage(Base):
     is_edited = Column(Boolean, default=False)
     is_deleted = Column(Boolean, default=False)
     raw = Column(Text, nullable=True)
-    received_at = Column(DateTime, default=datetime.utcnow)
+    received_at = Column(DateTime, default=utcnow_naive)
     shop_url = Column(String, ForeignKey("shops.shop_url"), nullable=True, index=True)
 
 
@@ -192,7 +191,7 @@ class WhatsAppGroupEvent(Base):
     group_name = Column(String, nullable=True)
     members = Column(Text, nullable=True)        # JSON list of {phone, name, is_admin}
     changed_at = Column(DateTime, index=True, nullable=True)
-    received_at = Column(DateTime, default=datetime.utcnow)
+    received_at = Column(DateTime, default=utcnow_naive)
     raw = Column(Text, nullable=True)
 
 
@@ -216,8 +215,19 @@ class WhatsAppRawMessage(Base):
     message_type = Column(String, nullable=False)  # text|document
     media_url = Column(Text, nullable=True)
 
+    # Provider-side stable id (Periskope's message_id when available).
+    # Used to look up rows for `message.updated` / `message.deleted` events
+    # — natural-key dedupe alone can't track edits because body changes.
+    source_message_id = Column(String, nullable=True, index=True)
+
+    # Edit / delete state (Periskope event-driven).
+    is_edited = Column(Boolean, nullable=False, default=False)
+    edited_at = Column(DateTime, nullable=True)
+    is_deleted = Column(Boolean, nullable=False, default=False)
+    deleted_at = Column(DateTime, nullable=True)
+
     # Server-side bookkeeping
-    received_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    received_at = Column(DateTime, default=utcnow_naive, nullable=False)
     processed_at = Column(DateTime, nullable=True)
     resolution_status = Column(String, nullable=False, default="pending", index=True)
     resolved_shop_url = Column(String, ForeignKey("shops.shop_url"), nullable=True, index=True)
@@ -265,7 +275,7 @@ class Binding(Base):
     identity_b_id = Column(Integer, ForeignKey("identities.id"), nullable=False, index=True)
     source = Column(String, nullable=False)  # static_directory|whatsapp|frejun|fireflies|manual
     confidence = Column(Float, nullable=False, default=1.0)
-    observed_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    observed_at = Column(DateTime, nullable=False, default=utcnow_naive)
     evidence_table = Column(String, nullable=True)
     evidence_id = Column(String, nullable=True)
 

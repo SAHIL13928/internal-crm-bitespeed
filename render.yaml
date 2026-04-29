@@ -1,16 +1,31 @@
+databases:
+  # Free Postgres — persistent across redeploys, unlike the SQLite
+  # file on the web service's ephemeral disk. The DATABASE_URL env
+  # var on the web service is filled in automatically via fromDatabase.
+  - name: cs-crm-db
+    plan: free
+    databaseName: cs_crm
+    user: cs_crm
+
 services:
   - type: web
     name: cs-crm-api
     runtime: python
     plan: free
-    buildCommand: pip install -r requirements.txt
-    # Bootstrap rebuilds crm.db from committed inputs whenever the
-    # ephemeral disk is empty (cold start, redeploy). No-op on warm
-    # restarts — exits in <1s if shops are already loaded.
+    buildCommand: pip install -r requirements.txt && (cd frontend && npm ci && npm run build)
+    # Bootstrap rebuilds the DB from committed input files when shops
+    # is empty. No-op on warm restarts — exits in <1s if data is loaded.
+    # On Postgres this only runs ONCE (data persists); on SQLite (local
+    # dev) it runs on every cold start.
     startCommand: python scripts/bootstrap_render.py && uvicorn crm_app.main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: PYTHON_VERSION
         value: "3.11"
+      # Provided automatically by Render's managed Postgres above.
+      - key: DATABASE_URL
+        fromDatabase:
+          name: cs-crm-db
+          property: connectionString
       - key: FREJUN_WEBHOOK_SECRET
         sync: false
       - key: FREJUN_CLIENT_ID
@@ -24,4 +39,16 @@ services:
       - key: ADMIN_SECRET
         sync: false
       - key: PERISKOPE_SIGNING_SECRET
+        sync: false
+      - key: PERISKOPE_API_KEY
+        sync: false
+      - key: PERISKOPE_PHONE
+        sync: false
+      # Dashboard / read-API basic auth
+      - key: API_USERNAME
+        sync: false
+      - key: API_PASSWORD
+        sync: false
+      # CORS allowlist (comma-separated). Leave unset for dev → "*".
+      - key: ALLOWED_ORIGINS
         sync: false

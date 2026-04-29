@@ -5,3 +5,7 @@ uvicorn[standard]
 sqlalchemy
 pydantic
 openpyxl
+python-dateutil
+# Postgres driver — kicks in when DATABASE_URL is set. Local dev still
+# uses SQLite (no extra dependency needed).
+psycopg2-binary

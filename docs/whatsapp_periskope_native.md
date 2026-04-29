@@ -13,10 +13,12 @@ webhook console at this URL and you're done.
    https://internal-crm-bitespeed.onrender.com/webhooks/periskope
    ```
 3. **Events to subscribe to** (uncheck the rest):
-   - ✅ `message.created`
-   - ✅ `chat.created`
-   - ❌ everything else (we ignore them anyway, but unsubscribing
-     reduces Periskope's webhook spend / our log noise)
+   - ✅ `message.created` — the actual messages
+   - ✅ `message.updated` — edits (without this, our DB shows stale text forever)
+   - ✅ `message.deleted` — soft-delete in our DB; preserves body for audit
+   - ✅ `chat.created` — group name + members map
+   - ✅ `chat.notification.created` — member adds/removes, group renames
+   - ❌ reactions, tickets, flags, phone status, notes — ignored server-side
 4. **Generate a signing key.** Copy it — you'll send this to me via DM
    so I can put it in our Render env var `PERISKOPE_SIGNING_SECRET`.
 5. Save.

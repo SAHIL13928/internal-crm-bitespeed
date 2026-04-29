@@ -1,0 +1,51 @@
+# Dev-only artifacts that should never end up in the image.
+
+# VCS
+.git/
+.gitignore
+.github/
+.claude/
+
+# Secrets — set via the deploy platform's env var UI, never bake in.
+.env
+.env.*
+*.env
+
+# Local Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local SQLite — production runs against Postgres; this would just bloat the image.
+crm.db
+*.db
+*.sqlite
+*.sqlite3
+
+# Frontend dev artifacts (Stage 1 builds dist/ from source)
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Logs / runtime
+logs/
+*.log
+
+# Docs (kept in repo, not needed in the running container)
+docs/_archive/
+scripts/_archive/
+
+# Tests don't need to ship to production. Strip them.
+tests/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

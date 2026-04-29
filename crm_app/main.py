@@ -11,11 +11,14 @@ load_dotenv()
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import desc, func, or_
 from sqlalchemy.orm import Session, selectinload
 
-from .db import Base, engine, get_db
+from .auth import require_basic_auth
+from .db import Base, engine, get_db, is_sqlite
+from .time_utils import utcnow_naive
 from .models import (
     Binding,
     Call,
@@ -28,7 +31,6 @@ from .models import (
     Shop,
     WhatsAppGroup,
     WhatsAppGroupEvent,
-    WhatsAppMessage,
     WhatsAppRawMessage,
 )
 from .schemas import (
@@ -62,13 +64,43 @@ if not logger.handlers:
 
 
 def _run_migrations():
-    """Idempotent ALTERs. Replace with Alembic when scale demands."""
+    """Idempotent ALTERs. SQLite-only — Postgres uses Alembic-style
+    migrations (committed under `migrations/`) which the operator runs
+    manually. We skip on Postgres so a fresh deploy doesn't try to
+    introspect with PRAGMA (which doesn't exist there)."""
+    if not is_sqlite():
+        return
     with engine.begin() as conn:
         cols = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(whatsapp_groups)").fetchall()}
         if cols and "group_jid" not in cols:
             conn.exec_driver_sql("ALTER TABLE whatsapp_groups ADD COLUMN group_jid VARCHAR")
             conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_whatsapp_groups_group_jid ON whatsapp_groups(group_jid)")
             logger.info("migration: added whatsapp_groups.group_jid + index")
+
+        # Periskope edit / delete tracking columns. Added after the initial
+        # whatsapp_raw_messages schema shipped — older DBs won't have them.
+        wrm_cols = {row[1] for row in conn.exec_driver_sql(
+            "PRAGMA table_info(whatsapp_raw_messages)"
+        ).fetchall()}
+        if wrm_cols:  # table exists
+            adds = [
+                ("source_message_id", "VARCHAR"),
+                ("is_edited", "BOOLEAN NOT NULL DEFAULT 0"),
+                ("edited_at", "DATETIME"),
+                ("is_deleted", "BOOLEAN NOT NULL DEFAULT 0"),
+                ("deleted_at", "DATETIME"),
+            ]
+            for col_name, col_def in adds:
+                if col_name not in wrm_cols:
+                    conn.exec_driver_sql(
+                        f"ALTER TABLE whatsapp_raw_messages ADD COLUMN {col_name} {col_def}"
+                    )
+                    logger.info("migration: added whatsapp_raw_messages.%s", col_name)
+            if "source_message_id" not in wrm_cols:
+                conn.exec_driver_sql(
+                    "CREATE INDEX IF NOT EXISTS ix_whatsapp_raw_messages_source_message_id "
+                    "ON whatsapp_raw_messages(source_message_id)"
+                )
 
 
 # Ensure tables exist on app start (no-op if already created by ETL)
@@ -77,12 +109,85 @@ _run_migrations()
 
 app = FastAPI(title="CS-CRM API", version="0.1.0")
 
+# CORS — production allowlist. Add new domains via the
+# ALLOWED_ORIGINS env var (comma-separated). Falls back to * for local
+# dev when nothing is set, so `python -m uvicorn ...` still works.
+_origins_env = os.environ.get("ALLOWED_ORIGINS", "").strip()
+if _origins_env:
+    _origins = [o.strip() for o in _origins_env.split(",") if o.strip()]
+else:
+    _origins = ["*"]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=_origins,
+    allow_methods=["GET", "POST", "PATCH"],
+    allow_headers=["Authorization", "Content-Type", "X-Webhook-Secret",
+                   "X-Admin-Secret", "x-periskope-signature"],
+    allow_credentials=True,
 )
+
+
+# ── Auth gate for read API + dashboard ──────────────────────────────────────
+# Webhooks have their own secrets. /api/health stays open for monitoring.
+# /admin/* (and /api/admin/*) have a separate X-Admin-Secret guard so a
+# leaked dashboard password doesn't expose conflict data.
+import base64 as _b64  # noqa: E402
+
+_OPEN_PATHS = (
+    "/",
+    "/api/health",
+    "/docs",
+    "/openapi.json",
+    "/redoc",
+)
+_OPEN_PREFIXES = (
+    "/webhooks/",       # provider-specific auth
+    "/admin/",          # X-Admin-Secret
+    "/api/admin/",      # X-Admin-Secret
+)
+
+
+@app.middleware("http")
+async def _basic_auth_gate(request, call_next):
+    """Constant-time HTTP Basic check on protected paths. Webhooks +
+    /api/health + admin endpoints are exempt (each has its own auth).
+    """
+    path = request.url.path
+    if path in _OPEN_PATHS or any(path.startswith(p) for p in _OPEN_PREFIXES):
+        return await call_next(request)
+    if request.method == "OPTIONS":
+        return await call_next(request)
+
+    expected_user = os.environ.get("API_USERNAME")
+    expected_pass = os.environ.get("API_PASSWORD")
+    if not expected_user or not expected_pass:
+        return JSONResponse(
+            {"detail": "API_USERNAME / API_PASSWORD not configured on server"},
+            status_code=503,
+        )
+
+    auth_header = request.headers.get("authorization", "")
+    if not auth_header.lower().startswith("basic "):
+        return JSONResponse(
+            {"detail": "basic auth required"},
+            status_code=401,
+            headers={"WWW-Authenticate": 'Basic realm="cs-crm"'},
+        )
+    try:
+        decoded = _b64.b64decode(auth_header.split(" ", 1)[1]).decode("utf-8")
+        username, _, password = decoded.partition(":")
+    except (ValueError, UnicodeDecodeError):
+        return JSONResponse({"detail": "malformed authorization header"}, status_code=401)
+
+    import hmac as _hmac
+    if not (_hmac.compare_digest(username, expected_user)
+            and _hmac.compare_digest(password, expected_pass)):
+        return JSONResponse(
+            {"detail": "invalid credentials"},
+            status_code=401,
+            headers={"WWW-Authenticate": 'Basic realm="cs-crm"'},
+        )
+    return await call_next(request)
 
 app.include_router(whatsapp_router)
 app.include_router(frejun_router)
@@ -103,10 +208,15 @@ def admin_conflicts_alias(
 ):
     return _list_conflicts(limit=limit, x_admin_secret=x_admin_secret, db=db)
 
-# Static frontend (single-page app) at /app/. Keeps GET / clean for Render's health probe.
-_frontend_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend")
-if os.path.isdir(_frontend_dir):
-    app.mount("/app", StaticFiles(directory=_frontend_dir, html=True), name="frontend")
+# Static frontend at /app/ — served from `frontend/dist/` after `npm run
+# build`. We fall back to `frontend/` for local dev if dist/ doesn't
+# exist yet (lets you run uvicorn before the first build).
+_frontend_root = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend")
+_frontend_dist = os.path.join(_frontend_root, "dist")
+if os.path.isdir(_frontend_dist):
+    app.mount("/app", StaticFiles(directory=_frontend_dist, html=True), name="frontend")
+elif os.path.isdir(_frontend_root):
+    app.mount("/app", StaticFiles(directory=_frontend_root, html=True), name="frontend")
 
 
 @app.get("/")
@@ -235,7 +345,7 @@ def _meeting_to_detail(m: Meeting) -> MeetingDetail:
 
 
 def _compute_kpi(db: Session, shop_url: str) -> ShopKpi:
-    now = datetime.utcnow()
+    now = utcnow_naive()
     week_ago = now - timedelta(days=7)
     week_ahead = now + timedelta(days=7)
 
@@ -312,7 +422,9 @@ def _compute_kpi(db: Session, shop_url: str) -> ShopKpi:
 # ── health / meta ─────────────────────────────────────────────────────────
 @app.get("/api/health")
 def health(db: Session = Depends(get_db)):
-    last_msg_ts = db.query(func.max(WhatsAppMessage.received_at)).scalar()
+    """Public health endpoint — no auth required so external monitors
+    (Render's healthcheck, uptime pingers) can hit it without creds."""
+    last_msg_ts = db.query(func.max(WhatsAppRawMessage.received_at)).scalar()
     last_evt_ts = db.query(func.max(WhatsAppGroupEvent.received_at)).scalar()
     return {
         "status": "ok",
@@ -324,9 +436,6 @@ def health(db: Session = Depends(get_db)):
         "issues": db.query(func.count(Issue.id)).scalar() or 0,
         "notes": db.query(func.count(Note.id)).scalar() or 0,
         "whatsapp": {
-            "messages": db.query(func.count(WhatsAppMessage.message_id)).scalar() or 0,
-            "messages_with_shop": db.query(func.count(WhatsAppMessage.message_id))
-                .filter(WhatsAppMessage.shop_url.isnot(None)).scalar() or 0,
             "raw_messages": db.query(func.count(WhatsAppRawMessage.id)).scalar() or 0,
             "raw_messages_resolved": db.query(func.count(WhatsAppRawMessage.id))
                 .filter(WhatsAppRawMessage.resolution_status == "resolved").scalar() or 0,
@@ -413,6 +522,66 @@ def list_whatsapp_groups(shop_url: str, db: Session = Depends(get_db)):
         .order_by(WhatsAppGroup.id)
         .all()
     )
+
+
+@app.get("/api/merchants/{shop_url}/whatsapp/messages")
+def list_whatsapp_messages(
+    shop_url: str,
+    limit: int = Query(100, ge=1, le=500),
+    db: Session = Depends(get_db),
+):
+    """Recent WA messages for this merchant — newest first.
+
+    We return BOTH sides of the conversation, not just the merchant's:
+    a chat with their account manager has Bitespeed-side replies whose
+    sender_phone is the AM's number (not in the merchant's contacts), so
+    those rows resolve to "pending". To still show them in the merchant
+    profile, we union on group_name as well as resolved_shop_url."""
+    _get_shop_or_404(db, shop_url)
+    shop_url = shop_url.lower()
+
+    # Discover this merchant's group names — covers groups bound via the
+    # static directory or where any message resolved to this merchant.
+    static_groups = {
+        g[0] for g in
+        db.query(WhatsAppGroup.group_name)
+        .filter(WhatsAppGroup.shop_url == shop_url)
+        .all()
+        if g[0]
+    }
+    msg_groups = {
+        g[0] for g in
+        db.query(WhatsAppRawMessage.group_name)
+        .filter(WhatsAppRawMessage.resolved_shop_url == shop_url)
+        .distinct().all()
+        if g[0]
+    }
+    group_names = static_groups | msg_groups
+
+    q = db.query(WhatsAppRawMessage).filter(
+        or_(
+            WhatsAppRawMessage.resolved_shop_url == shop_url,
+            WhatsAppRawMessage.group_name.in_(group_names) if group_names else False,
+        )
+    )
+    rows = q.order_by(desc(WhatsAppRawMessage.timestamp)).limit(limit).all()
+    return [
+        {
+            "id": r.id,
+            "group_name": r.group_name,
+            "sender_phone": r.sender_phone,
+            "sender_name": r.sender_name,
+            "timestamp": r.timestamp.isoformat() if r.timestamp else None,
+            "body": r.body,
+            "is_from_me": r.is_from_me,
+            "message_type": r.message_type,
+            "media_url": r.media_url,
+            "is_edited": r.is_edited,
+            "is_deleted": r.is_deleted,
+            "resolution_method": r.resolution_method,
+        }
+        for r in rows
+    ]
 
 
 @app.post("/api/merchants/{shop_url}/dnc", response_model=ShopSummary)
@@ -599,7 +768,7 @@ def patch_issue(issue_id: int, body: IssuePatch, db: Session = Depends(get_db)):
     for field, value in body.model_dump(exclude_unset=True).items():
         setattr(issue, field, value)
     if body.status == "resolved" and issue.resolved_at is None:
-        issue.resolved_at = datetime.utcnow()
+        issue.resolved_at = utcnow_naive()
     db.commit()
     db.refresh(issue)
     return issue

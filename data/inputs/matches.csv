@@ -1,0 +1,15 @@
+id,title,matchedBrand,shopUrl,tier,score
+t1,Nike Air Max 97 Sneakers,Nike,https://www.nike.com,1,1
+t2,"NIKE, Inc. Official Store",Nike,https://www.nike.com,1,1
+t3,adidas Ultraboost 22 - men's,Adidas,https://www.adidas.com,1,1
+t4,samsnug Galaxy S24 Ultra,Samsung,https://www.samsung.com,1,1
+t5,Sony WH-1000XM5 Wireless Headphones,Sony,https://www.sony.com,1,1
+t6,The North Face Nuptse Jacket,The North Face,https://www.thenorthface.com,1,1
+t7,north face Thermoball Hoodie,The North Face,https://www.thenorthface.com,1,1
+t8,"Ralph  Lauren ""Polo"" Shirt",Ralph Lauren,https://www.ralphlauren.com,1,1
+t9,Under-Armour Training Tee,Under Armour,https://www.underarmour.com,1,1
+t10,Louis Vuitton Neverfull MM,"Louis Vuitton, LLC",https://www.louisvuitton.com,2,1
+t11,Gap Kids Hoodie,Gap,https://www.gap.com,1,1
+t12,an apple a day keeps the doctor away,,,0,0.1
+t13,iPhone 15 Pro Max 256GB,Apple,https://www.apple.com,1,1
+t14,random product with no brand,,,0,0.12

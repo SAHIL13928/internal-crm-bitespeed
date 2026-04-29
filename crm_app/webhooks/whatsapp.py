@@ -19,10 +19,9 @@ from typing import List, Optional, Union
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from pydantic import ValidationError
-from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
-from ..db import get_db
+from ..db import get_db, insert_on_conflict_do_nothing
 from ..models import WhatsAppGroup, WhatsAppGroupEvent, WhatsAppRawMessage
 from ..resolver import resolve_whatsapp_message
 from ..schemas import (
@@ -32,6 +31,7 @@ from ..schemas import (
     WhatsAppRawMessageIn,
     WhatsAppRawMessagesResult,
 )
+from ..time_utils import utcnow_naive
 from ..utils import to_naive_utc
 
 logger = logging.getLogger("crm.webhook.whatsapp")
@@ -73,7 +73,7 @@ def _to_row(m: WhatsAppRawMessageIn) -> dict:
         "is_from_me": m.is_from_me,
         "message_type": m.message_type,
         "media_url": m.media_url,
-        "received_at": datetime.utcnow(),
+        "received_at": utcnow_naive(),
         "resolution_status": "pending",
     }
 
@@ -114,16 +114,14 @@ async def receive_messages(
     # Bulk INSERT ... ON CONFLICT DO NOTHING. The natural-key constraint
     # (group_name, sender_phone, timestamp, body) makes this idempotent.
     # RETURNING gives us the count of actually-inserted rows so we can
-    # report duplicates without re-querying.
+    # report duplicates without re-querying. Dialect-agnostic helper so
+    # the same code works on SQLite (local) and Postgres (production).
     try:
         if rows:
-            stmt = (
-                sqlite_insert(WhatsAppRawMessage)
-                .values(rows)
-                .on_conflict_do_nothing(
-                    index_elements=["group_name", "sender_phone", "timestamp", "body"]
-                )
-                .returning(WhatsAppRawMessage.id)
+            stmt = insert_on_conflict_do_nothing(
+                WhatsAppRawMessage, rows,
+                ["group_name", "sender_phone", "timestamp", "body"],
+                returning=WhatsAppRawMessage.id,
             )
             result = db.execute(stmt)
             inserted_ids = [row[0] for row in result.fetchall()]
@@ -158,7 +156,7 @@ async def receive_messages(
                 evidence_table="whatsapp_raw_messages",
                 evidence_id=str(r.id),
             )
-            r.processed_at = datetime.utcnow()
+            r.processed_at = utcnow_naive()
             if shop_url and shop_url != "conflict":
                 r.resolved_shop_url = shop_url
                 r.resolution_status = "resolved"

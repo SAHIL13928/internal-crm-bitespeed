@@ -294,3 +294,158 @@ def test_timestamp_with_short_offset(tmp_app):
         assert row.timestamp is not None
     finally:
         db.close()
+
+
+# ── message.updated ────────────────────────────────────────────────────────
+def test_message_updated_rewrites_body_and_flags_edited(tmp_app):
+    """1. message.created with body='hello'.
+    2. message.updated with body='hello world' for the same message_id.
+    Result: row's body is updated, is_edited=True, edited_at is set."""
+    client = tmp_app["client"]
+    db_module = tmp_app["db_module"]
+    from crm_app.models import WhatsAppRawMessage
+
+    msg_id = "true_119001234567@c.us_3EBABC_919001234567@c.us"
+
+    create = {
+        "event": "message.created",
+        "data": {
+            "message_id": msg_id,
+            "sender_phone": "919001234567@c.us",
+            "chat_id": "119001234567@c.us",
+            "body": "hello",
+            "message_type": "chat",
+            "from_me": False,
+            "timestamp": "2026-04-26 14:00:00+00",
+        },
+    }
+    r = _post(client, create)
+    assert r.status_code == 200
+
+    update = {
+        "event": "message.updated",
+        "data": {
+            "message_id": msg_id,
+            "body": "hello world",
+            "chat_id": "119001234567@c.us",
+        },
+    }
+    r = _post(client, update)
+    assert r.status_code == 200, r.text
+    assert r.json()["updated"] == 1
+
+    db = db_module.SessionLocal()
+    try:
+        row = db.query(WhatsAppRawMessage).filter_by(source_message_id=msg_id).first()
+        assert row is not None
+        assert row.body == "hello world"
+        assert row.is_edited is True
+        assert row.edited_at is not None
+    finally:
+        db.close()
+
+
+def test_message_updated_for_unknown_id_skips_gracefully(tmp_app):
+    """If we missed the original message.created, an update for an
+    unknown id should NOT 500 — return 200 + skipped so Periskope's
+    retry queue doesn't spin."""
+    client = tmp_app["client"]
+    update = {
+        "event": "message.updated",
+        "data": {"message_id": "never-seen-this", "body": "ghost edit"},
+    }
+    r = _post(client, update)
+    assert r.status_code == 200
+    assert r.json()["skipped"] is True
+
+
+# ── message.deleted ────────────────────────────────────────────────────────
+def test_message_deleted_soft_deletes_existing_row(tmp_app):
+    """Soft-delete: row stays for audit, is_deleted flag set. We
+    intentionally keep the body — deleted CS messages are often the
+    most interesting ones (what did the client retract?)."""
+    client = tmp_app["client"]
+    db_module = tmp_app["db_module"]
+    from crm_app.models import WhatsAppRawMessage
+
+    msg_id = "true_119001234567@c.us_3EBDEF_919001234567@c.us"
+
+    create = {
+        "event": "message.created",
+        "data": {
+            "message_id": msg_id,
+            "sender_phone": "919001234567@c.us",
+            "chat_id": "119001234567@c.us",
+            "body": "I want to cancel",
+            "message_type": "chat",
+            "from_me": False,
+            "timestamp": "2026-04-26 15:00:00+00",
+        },
+    }
+    _post(client, create)
+
+    delete = {"event": "message.deleted", "data": {"message_id": msg_id}}
+    r = _post(client, delete)
+    assert r.status_code == 200, r.text
+    assert r.json()["deleted"] == 1
+
+    db = db_module.SessionLocal()
+    try:
+        row = db.query(WhatsAppRawMessage).filter_by(source_message_id=msg_id).first()
+        assert row is not None
+        # Body preserved for audit, just flagged
+        assert row.body == "I want to cancel"
+        assert row.is_deleted is True
+        assert row.deleted_at is not None
+    finally:
+        db.close()
+
+
+# ── chat.notification.created ─────────────────────────────────────────────
+def test_chat_notification_recorded(tmp_app):
+    """Group lifecycle event lands in whatsapp_group_events for audit.
+    Payload shape is verbatim from
+    https://docs.periskope.app/api-reference/webhooks/chat.notification.created.md
+    """
+    client = tmp_app["client"]
+    db_module = tmp_app["db_module"]
+    from crm_app.models import WhatsAppGroupEvent
+
+    payload = {
+        "event": "chat.notification.created",
+        "data": {
+            "org_id": "2997dd64-89bf-48d3-9a22-b314fca017e5",
+            "notification_id": "true_120363371308389685@g.us_fa3c48a78cc64e139e5737f7057235ea_918527184400@c.us_remove",
+            "chat_id": "120363371308389685@g.us",
+            "author": "918527184400@c.us",
+            "type": "remove",
+            "timestamp": "2025-01-11T11:52:27.231+00:00",
+            "recipientids": ["919537851844@c.us"],
+            "org_phone": "918527184400@c.us",
+        },
+        "org_id": "2997dd64-89bf-48d3-9a22-b314fca017e5",
+        "timestamp": "2025-01-11T11:52:27.231+00:00",
+    }
+    r = _post(client, payload)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["recorded"] is True
+    assert body["type"] == "remove"
+    assert body["author"] == "918527184400@c.us"
+    assert body["recipient_count"] == 1
+
+    db = db_module.SessionLocal()
+    try:
+        ev = (
+            db.query(WhatsAppGroupEvent)
+            .filter_by(group_id="120363371308389685@g.us")
+            .order_by(WhatsAppGroupEvent.id.desc())
+            .first()
+        )
+        assert ev is not None
+        assert ev.event_type == "periskope:remove"
+        # author + recipientids stored together as the members blob
+        assert "919537851844" in (ev.members or "")
+        assert "918527184400" in (ev.members or "")  # author included
+    finally:
+        db.close()

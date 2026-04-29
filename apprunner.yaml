@@ -1,0 +1,58 @@
+# AWS App Runner configuration.
+#
+# This file is read when App Runner is configured to "build using a config
+# file" with source type = repository. We use the Dockerfile-based build
+# (App Runner detects the Dockerfile and runs it), so most build/run
+# commands here are just metadata. The container's CMD wins at runtime.
+#
+# Set env vars in the App Runner console (Settings → Environment) or via
+# `aws apprunner` CLI. The names below are the contract — values must be
+# provided externally so secrets never end up in git.
+
+version: 1.0
+runtime: docker
+
+build:
+  commands:
+    build:
+      - echo "Build delegated to Dockerfile"
+
+run:
+  network:
+    port: 8000
+  env:
+    # Database — set DATABASE_URL to the RDS connection string
+    # (postgresql://user:pass@host:5432/dbname). The app falls back to
+    # SQLite if unset, which is NOT what you want in production.
+    - name: DATABASE_URL
+      value: ""
+
+    # Dashboard / read-API basic auth
+    - name: API_USERNAME
+      value: ""
+    - name: API_PASSWORD
+      value: ""
+
+    # CORS allowlist (comma-separated, no trailing slashes)
+    - name: ALLOWED_ORIGINS
+      value: ""
+
+    # Webhook secrets
+    - name: WHATSAPP_WEBHOOK_SECRET
+      value: ""
+    - name: PERISKOPE_SIGNING_SECRET
+      value: ""
+    - name: FREJUN_WEBHOOK_SECRET
+      value: ""
+
+    # Admin guard for /admin/conflicts
+    - name: ADMIN_SECRET
+      value: ""
+
+    # Backfill scripts (optional — needed only if you run them via Shell)
+    - name: PERISKOPE_API_KEY
+      value: ""
+    - name: PERISKOPE_PHONE
+      value: ""
+    - name: FREJUN_API_KEY
+      value: ""

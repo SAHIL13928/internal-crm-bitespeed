@@ -100,7 +100,12 @@ class CallListItem(ORM):
     started_at: Optional[datetime] = None
     direction: Optional[str] = None
     connected: bool = False
-    duration_sec: Optional[int] = None
+    # Was Optional[int]. Some legacy rows from the v2 API backfill stored
+    # fractional seconds before we started flooring at insert (see
+    # etl/load_frejun.apply_call_record). Pydantic v2 strict-mode rejects
+    # float→int coercion when there's a fractional part. Loosening to
+    # float keeps both legacy + current rows serializable.
+    duration_sec: Optional[float] = None
     from_number: Optional[str] = None
     to_number: Optional[str] = None
     agent_name: Optional[str] = None              # Bitespeed-side

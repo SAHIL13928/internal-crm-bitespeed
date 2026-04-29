@@ -21,6 +21,11 @@ def tmp_app(tmp_path, monkeypatch):
     monkeypatch.setenv("FREJUN_WEBHOOK_SECRET", "frejun-test-secret")
     monkeypatch.setenv("ADMIN_SECRET", "admin-test-secret")
     monkeypatch.setenv("PERISKOPE_SIGNING_SECRET", "test-periskope-secret")
+    # API basic auth — tests don't hit protected routes (only webhooks
+    # and admin-secret-guarded paths), but set these to silence the
+    # 503-when-unconfigured path if a future test does.
+    monkeypatch.setenv("API_USERNAME", "test-user")
+    monkeypatch.setenv("API_PASSWORD", "test-pass")
 
     # Wipe any cached crm_app modules so they re-bind to the new DB path.
     for mod in list(sys.modules.keys()):

@@ -61,10 +61,6 @@ async def receive_calls(
     body = await request.body()
     _verify_secret(x_webhook_secret)
 
-    # TODO REMOVE: temporary raw-payload capture so we can verify FreJun's actual
-    # field names against the mapper. Delete this line once we've seen a sample.
-    logger.info("frejun.calls.RAW_PAYLOAD: %s", body.decode("utf-8", errors="replace"))
-
     try:
         payload = json.loads(body or b"{}")
     except json.JSONDecodeError:
