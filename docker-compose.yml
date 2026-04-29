@@ -1,0 +1,70 @@
+# Single-box deployment: Postgres + FastAPI app side-by-side on one EC2 host.
+#
+# `docker compose up -d` brings up:
+#   - postgres   (data persisted on a named volume; survives redeploys)
+#   - app        (built from the repo's Dockerfile; reaches Postgres at
+#                 the service hostname `postgres` on the internal docker
+#                 network — no public DB port needed)
+#
+# Secrets come from .env in the same directory (NOT committed to git).
+# Copy .env.example → .env and fill in the values before `up`.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: cs-crm-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-cs_crm}
+      POSTGRES_USER: ${POSTGRES_USER:-cs_crm}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      # Named volume — survives container recreation. Wipe with
+      # `docker compose down -v` only if you actually want to lose data.
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cs_crm} -d ${POSTGRES_DB:-cs_crm}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    # No `ports:` block — Postgres is only reachable from the app
+    # container on the internal network. Don't expose 5432 to the host
+    # unless you specifically want to connect from outside (psql etc.).
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: cs-crm-app
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # Auto-wire DATABASE_URL using the compose service name `postgres`.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-cs_crm}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-cs_crm}
+      PORT: "8000"
+      # Everything below comes verbatim from .env (compose passes them through).
+      API_USERNAME: ${API_USERNAME}
+      API_PASSWORD: ${API_PASSWORD}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
+      WHATSAPP_WEBHOOK_SECRET: ${WHATSAPP_WEBHOOK_SECRET}
+      PERISKOPE_SIGNING_SECRET: ${PERISKOPE_SIGNING_SECRET}
+      FREJUN_WEBHOOK_SECRET: ${FREJUN_WEBHOOK_SECRET}
+      ADMIN_SECRET: ${ADMIN_SECRET}
+      PERISKOPE_API_KEY: ${PERISKOPE_API_KEY:-}
+      PERISKOPE_PHONE: ${PERISKOPE_PHONE:-}
+      FREJUN_API_KEY: ${FREJUN_API_KEY:-}
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 90s
+      retries: 3
+
+volumes:
+  postgres_data:
+    name: cs_crm_postgres_data

@@ -78,8 +78,9 @@ See `crm_app/identity.py` and `crm_app/resolver.py`.
 
 ## Where to read next
 
-- **Production deploy on AWS (App Runner + RDS):** [docs/aws.md](docs/aws.md)
-- **Production deploy on Render (alternative):** [docs/deploy.md](docs/deploy.md)
+- **Single EC2 box (Postgres + app via Docker Compose):** [docs/ec2.md](docs/ec2.md)
+- **AWS App Runner + RDS:** [docs/aws.md](docs/aws.md)
+- **Render (alternative):** [docs/deploy.md](docs/deploy.md)
 - **Backend reference (endpoints, ETL stages):** [docs/backend.md](docs/backend.md)
 - **Periskope native webhook (for the WA bridge intern):** [docs/whatsapp_periskope_native.md](docs/whatsapp_periskope_native.md)
 - **Scripts catalog:** [scripts/README.md](scripts/README.md)

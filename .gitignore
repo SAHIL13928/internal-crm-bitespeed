@@ -7,6 +7,18 @@ __pycache__/
 crm.db
 logs/
 
+# Editor / agent state
+.claude/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Frontend build / deps
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
 # data/scratch contains reviewer-only artifacts — kept out of git.
 data/scratch/
 
