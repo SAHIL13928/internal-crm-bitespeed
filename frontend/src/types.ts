@@ -158,6 +158,31 @@ export interface WhatsAppMessage {
   resolution_method: string | null;
 }
 
+// Google Calendar — populated by scripts/sync_google_calendars.py and
+// exposed via /api/shops/{shop_url}/upcoming-meetings. Distinct from
+// MeetingListItem (Fireflies — historic recordings only).
+export interface UpcomingMeeting {
+  id: number;
+  google_event_id: string;
+  summary: string | null;
+  description: string | null;
+  start_time: string | null;
+  end_time: string | null;
+  meeting_link: string | null;
+  organizer_email: string | null;
+  attendee_emails: { email: string; response_status?: string | null }[];
+}
+
+export interface CalendarConnection {
+  id: number;
+  user_email: string;
+  auth_mode: "user_oauth" | "dwd_impersonation";
+  status: "active" | "failing" | "revoked";
+  last_synced_at: string | null;
+  last_error: string | null;
+  created_at: string | null;
+}
+
 // API response wrapper — `null` = network/404, `__unauthorized` =
 // surface auth flow. The fetch wrapper returns one of these.
 export type ApiResult<T> =

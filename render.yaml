@@ -52,3 +52,45 @@ services:
       # CORS allowlist (comma-separated). Leave unset for dev → "*".
       - key: ALLOWED_ORIGINS
         sync: false
+      # Google Calendar integration. Per-user OAuth works without DWD
+      # vars set; setting GOOGLE_SERVICE_ACCOUNT_JSON activates DWD
+      # mode (admin must also flip connections via /admin/calendar/enable-dwd).
+      - key: CALENDAR_TOKEN_ENCRYPTION_KEY
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_REDIRECT_URI
+        sync: false
+      - key: GOOGLE_SERVICE_ACCOUNT_JSON
+        sync: false
+      - key: GOOGLE_WORKSPACE_DOMAIN
+        sync: false
+
+  # Cron: every 10 min, refresh upcoming meetings for all connected
+  # calendars. Cheap (~5 sec per user) and safe to re-run.
+  - type: cron
+    name: cs-crm-calendar-sync
+    runtime: python
+    plan: free
+    schedule: "*/10 * * * *"
+    buildCommand: pip install -r requirements.txt
+    startCommand: python scripts/sync_google_calendars.py
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: cs-crm-db
+          property: connectionString
+      - key: CALENDAR_TOKEN_ENCRYPTION_KEY
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_SERVICE_ACCOUNT_JSON
+        sync: false
+      - key: GOOGLE_WORKSPACE_DOMAIN
+        sync: false

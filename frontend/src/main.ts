@@ -1,6 +1,9 @@
-// Entry point — search, merchant load, tab routing.
+// Entry point — two-screen flow (search → profile), tab routing.
+// Mirrors the mockup's behavior: typing in the search input shows a
+// floating result list under it; clicking a result opens the full
+// profile screen.
 import { Api } from "./api";
-import { renderActivity } from "./components/activity";
+import { renderCallsMeetings } from "./components/calls_meetings";
 import { renderIssues } from "./components/issues";
 import { renderKpiStrip } from "./components/kpi_strip";
 import { renderMerchantHeader } from "./components/merchant_header";
@@ -8,60 +11,126 @@ import { renderNotes } from "./components/notes";
 import { renderUpcoming } from "./components/upcoming";
 import { renderWhatsApp } from "./components/whatsapp";
 import type { ShopProfile, ShopSummary } from "./types";
-import { $, $$, esc, healthPill, toast } from "./utils";
+import { $, $$, esc, fmtRelative, healthPill, toast } from "./utils";
 
 let activeMerchant: ShopProfile | null = null;
 let activeTab: TabKey = "upcoming";
 
-type TabKey = "upcoming" | "activity" | "whatsapp" | "issues" | "notes";
+type TabKey = "upcoming" | "calls" | "whatsapp" | "issues" | "notes";
 
 const TAB_RENDERERS: Record<TabKey, (p: ShopProfile) => void | Promise<void>> = {
   upcoming: renderUpcoming,
-  activity: renderActivity,
+  calls:    renderCallsMeetings,
   whatsapp: renderWhatsApp,
   issues:   renderIssues,
   notes:    renderNotes,
 };
 
-// ── Top-bar health-tag (shows DB stats) ─────────────────────────────────
-async function refreshHealthTag(): Promise<void> {
-  const h = await Api.health();
-  const tag = $("#health-tag");
-  if (!tag) return;
-  if (!h) { tag.textContent = "API unreachable"; return; }
-  tag.textContent = `${h.shops.toLocaleString()} merchants · ${h.calls.toLocaleString()} calls · ${h.meetings.toLocaleString()} meetings`;
+// ── Search screen ───────────────────────────────────────────────────────
+function showSearchScreen(): void {
+  $("#screen-search")?.classList.remove("hidden");
+  $("#screen-profile")?.classList.add("hidden");
+  activeMerchant = null;
 }
 
-// ── Search ──────────────────────────────────────────────────────────────
+function showProfileScreen(): void {
+  $("#screen-search")?.classList.add("hidden");
+  $("#screen-profile")?.classList.remove("hidden");
+}
+
+async function refreshSearchStats(): Promise<void> {
+  const stats = $("#search-stats");
+  if (!stats) return;
+  const h = await Api.health();
+  if (!h) { stats.textContent = "API unreachable"; return; }
+  stats.textContent = `${h.shops.toLocaleString()} merchants · ${h.calls.toLocaleString()} calls · ${h.meetings.toLocaleString()} meetings`;
+}
+
+// Read-only check on the calendar wiring — shown to AMs on the search
+// screen so they don't have to memorize /auth/google/connect.
+//   • Endpoint 503 (Google client not configured on the server) → hide
+//     the banner; nothing the AM can do about it themselves.
+//   • Empty list → "Connect your calendar" CTA.
+//   • One+ active connection → "Calendar synced …" + "manage" link.
+//   • At least one failing/revoked → "reconnect" CTA (Google only
+//     re-issues a refresh token on a fresh consent, so reconnect is
+//     the right verb, not retry).
+async function refreshCalendarBanner(): Promise<void> {
+  const el = $("#calendar-banner");
+  if (!el) return;
+  // Server-side env check first — if Google client creds aren't on the
+  // box, clicking "Connect" would just 503. Hide entirely in that case;
+  // the "configure GCP" task is on the operator, not the AM.
+  const h = await Api.health();
+  if (!h?.google_calendar?.configured) return;
+
+  const conns = await Api.calendarConnections();
+  if (conns === null) return;
+
+  const active = conns.filter((c) => c.status === "active");
+  const failing = conns.filter((c) => c.status === "failing" || c.status === "revoked");
+
+  if (active.length === 0 && failing.length === 0) {
+    el.innerHTML = `
+      <a href="/auth/google/connect"
+         class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full
+                border border-indigo-200 text-indigo-700 hover:bg-indigo-50">
+        <span class="dot bg-indigo-500"></span>
+        Connect your Google Calendar
+      </a>`;
+  } else if (failing.length > 0 && active.length === 0) {
+    el.innerHTML = `
+      <a href="/auth/google/connect"
+         class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full
+                border border-amber-200 text-amber-700 hover:bg-amber-50">
+        <span class="dot bg-amber-500"></span>
+        Calendar connection needs attention — reconnect
+      </a>`;
+  } else {
+    const last = active
+      .map((c) => c.last_synced_at)
+      .filter((s): s is string => Boolean(s))
+      .sort()
+      .pop();
+    const lastTxt = last ? `synced ${fmtRelative(last)}` : "not yet synced";
+    el.innerHTML = `
+      <span class="text-ink-500">
+        <span class="dot bg-emerald-500"></span>
+        Calendar: ${active.length} account${active.length > 1 ? "s" : ""} · ${lastTxt}
+      </span>
+      <a href="/auth/google/connections" class="ml-2 text-indigo-600 underline">manage</a>`;
+  }
+  el.classList.remove("hidden");
+}
+
 async function runSearch(q: string): Promise<void> {
-  const list = $("#results");
+  const list = $("#search-results");
   if (!list) return;
-  if (!q.trim()) { list.innerHTML = ""; return; }
-  list.innerHTML = `<div class="text-xs text-slate-400 px-3 py-2">Searching…</div>`;
-  const results = await Api.merchants(q, 30);
+  if (!q.trim()) { list.classList.add("hidden"); list.innerHTML = ""; return; }
+  list.classList.remove("hidden");
+  list.innerHTML = `<div class="text-xs text-ink-300 px-4 py-3">Searching…</div>`;
+  const results = await Api.merchants(q, 8);
   if (!results || results.length === 0) {
-    list.innerHTML = `<div class="text-xs text-slate-400 px-3 py-2">No matches.</div>`;
+    list.innerHTML = `<div class="text-xs text-ink-300 px-4 py-3">No matches.</div>`;
     return;
   }
-  list.innerHTML = results.map(renderResultCard).join("");
+  list.innerHTML = results.map(resultRow).join("");
   list.querySelectorAll<HTMLButtonElement>("button[data-shop-url]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const url = btn.dataset.shopUrl;
-      if (url) void loadMerchant(url);
-    });
+    btn.addEventListener("click", () => loadMerchant(btn.dataset.shopUrl!));
   });
 }
 
-function renderResultCard(s: ShopSummary): string {
+function resultRow(s: ShopSummary): string {
   return `
-    <button class="w-full text-left px-4 py-3 hover:bg-slate-50 border-b border-slate-100 transition-colors"
-            data-shop-url="${esc(s.shop_url)}">
-      <div class="flex items-center justify-between gap-2">
+    <button data-shop-url="${esc(s.shop_url)}"
+            class="w-full text-left px-4 py-3 hover:bg-gray-50 flex items-center justify-between border-t border-gray-100 first:border-t-0">
+      <div class="min-w-0">
         <div class="text-sm font-medium truncate">${esc(s.brand_name || s.shop_url)}</div>
-        ${healthPill(s.health_status)}
+        <div class="text-xs text-ink-500 truncate">${esc(s.shop_url)}</div>
       </div>
-      <div class="text-xs text-slate-500 mt-0.5 truncate">${esc(s.shop_url)}</div>
-    </button>`;
+      ${healthPill(s.health_status)}
+    </button>
+  `;
 }
 
 // ── Merchant load ───────────────────────────────────────────────────────
@@ -70,15 +139,14 @@ async function loadMerchant(shopUrl: string): Promise<void> {
   if (!profile) { toast("Could not load merchant"); return; }
   activeMerchant = profile;
 
-  const header = $("#merchant-header");
+  const header = $("#profile-header");
   if (header) header.innerHTML = renderMerchantHeader(profile);
+  $("#back-btn")?.addEventListener("click", showSearchScreen);
 
   const kpi = $("#kpi-strip");
   if (kpi) kpi.innerHTML = renderKpiStrip(profile);
 
-  $("#empty-state")?.classList.add("hidden");
-  $("#merchant-shell")?.classList.remove("hidden");
-
+  showProfileScreen();
   setTab(activeTab);
 }
 
@@ -86,31 +154,40 @@ async function loadMerchant(shopUrl: string): Promise<void> {
 function setTab(tab: TabKey): void {
   activeTab = tab;
   $$("button[data-tab]").forEach((b) => {
-    b.classList.toggle("tab-active", b.dataset.tab === tab);
+    b.setAttribute("data-active", b.dataset.tab === tab ? "true" : "false");
   });
   if (activeMerchant) void TAB_RENDERERS[tab](activeMerchant);
 }
 
 // ── Boot ────────────────────────────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", () => {
-  void refreshHealthTag();
+  void refreshSearchStats();
+  void refreshCalendarBanner();
+  // ?google_connected=1 → toast + refresh banner so the AM sees their
+  // freshly-connected account immediately.
+  if (new URLSearchParams(location.search).get("google_connected") === "1") {
+    toast("Calendar connected");
+    history.replaceState(null, "", location.pathname);
+    setTimeout(() => void refreshCalendarBanner(), 250);
+  }
 
-  const search = $<HTMLInputElement>("#q");
+  const search = $<HTMLInputElement>("#search-input");
   if (search) {
     let t: number | undefined;
     search.addEventListener("input", () => {
       window.clearTimeout(t);
       t = window.setTimeout(() => runSearch(search.value), 200);
     });
-    // Enter on result list opens first match
     search.addEventListener("keydown", (e) => {
       if (e.key === "Enter") {
-        const first = $("#results button[data-shop-url]") as HTMLButtonElement | null;
+        const first = $<HTMLButtonElement>("#search-results button[data-shop-url]");
         first?.click();
+      } else if (e.key === "Escape") {
+        search.value = ""; runSearch("");
       }
-      if (e.key === "Escape") { search.value = ""; void runSearch(""); }
     });
   }
+
   $$("button[data-tab]").forEach((b) => {
     b.addEventListener("click", () => setTab(b.dataset.tab as TabKey));
   });

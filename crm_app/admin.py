@@ -1,7 +1,8 @@
 """Admin / diagnostics endpoints — surface coverage gaps so we can keep improving
-the merchant-mapping over time. Read-only; no mutations.
+the merchant-mapping over time. Mostly read-only; the calendar/enable-dwd
+endpoint mutates connection rows.
 
-Some endpoints (the ones that surface raw conflict data) are protected by an
+Endpoints that mutate or surface raw merchant data are protected by an
 `X-Admin-Secret` header compared against ADMIN_SECRET. The coverage / orphan
 endpoints stay unauthenticated for now since they're already used by tooling.
 """
@@ -10,13 +11,16 @@ import os
 from collections import Counter
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from .db import get_db
 from .identity import find_conflicts
-from .models import Call, Contact, Meeting, MeetingAttendee, Note, Shop, WhatsAppRawMessage
+from .models import (
+    CalendarConnection, Call, Contact, Meeting, MeetingAttendee, Note, Shop,
+    WhatsAppRawMessage,
+)
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -229,6 +233,59 @@ def list_conflicts(
     return {
         "identity_graph_conflicts": graph_conflicts,
         "whatsapp_message_conflicts": raw_items,
+    }
+
+
+@router.post("/calendar/enable-dwd")
+def enable_dwd(
+    payload: dict,
+    x_admin_secret: Optional[str] = Header(None),
+    db: Session = Depends(get_db),
+):
+    """Flip selected calendar_connections from per-user OAuth to
+    service-account / domain-wide-delegation mode.
+
+    Body:
+      { "user_emails": ["a@bitespeed.co", "b@bitespeed.co"] }
+      OR
+      { "user_emails": "all" }   (every active connection in the DB)
+
+    Validates that GOOGLE_SERVICE_ACCOUNT_JSON is configured before
+    flipping. After this returns, the next sync run uses the SA's
+    credentials with `.with_subject(user_email)` instead of the user's
+    refresh token. Refresh tokens stay encrypted in the DB but are
+    no longer used.
+    """
+    _require_admin(x_admin_secret)
+
+    if not os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON"):
+        raise HTTPException(503, "GOOGLE_SERVICE_ACCOUNT_JSON not configured — set it before flipping mode")
+
+    selector = (payload or {}).get("user_emails")
+    if selector == "all":
+        rows = db.query(CalendarConnection).filter(CalendarConnection.status != "revoked").all()
+    elif isinstance(selector, list) and all(isinstance(e, str) for e in selector):
+        rows = (
+            db.query(CalendarConnection)
+            .filter(CalendarConnection.user_email.in_(selector))
+            .filter(CalendarConnection.status != "revoked")
+            .all()
+        )
+    else:
+        raise HTTPException(400, "user_emails must be a list of emails or the literal string 'all'")
+
+    flipped = 0
+    for conn in rows:
+        if conn.auth_mode != "dwd_impersonation":
+            conn.auth_mode = "dwd_impersonation"
+            conn.last_error = None
+            conn.status = "active"  # re-arm even if previously failing
+            flipped += 1
+    db.commit()
+    return {
+        "flipped": flipped,
+        "total_matched": len(rows),
+        "user_emails": [r.user_email for r in rows],
     }
 
 

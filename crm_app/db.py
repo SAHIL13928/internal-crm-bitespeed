@@ -31,6 +31,18 @@ def _build_url() -> str:
         elif url.startswith("postgresql://") and "+" not in url[: url.find("://")]:
             url = url.replace("postgresql://", "postgresql+psycopg2://", 1)
         return url
+    # Production guard: docker-compose sets CRM_REQUIRE_DATABASE_URL=1
+    # so a typo'd / missing DATABASE_URL crashes the container at boot
+    # instead of silently writing to an ephemeral SQLite file inside
+    # the image — which would survive until the next redeploy and then
+    # vanish, taking the data with it.
+    if os.environ.get("CRM_REQUIRE_DATABASE_URL"):
+        raise RuntimeError(
+            "DATABASE_URL is not set but CRM_REQUIRE_DATABASE_URL=1. "
+            "Refusing to start with a SQLite fallback in a production "
+            "container. Check docker-compose env passthrough and the "
+            ".env file on the host."
+        )
     # SQLite fallback — used by local dev and tests.
     db_path = os.environ.get(
         "CRM_DB_PATH",

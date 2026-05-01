@@ -9,3 +9,16 @@ python-dateutil
 # Postgres driver — kicks in when DATABASE_URL is set. Local dev still
 # uses SQLite (no extra dependency needed).
 psycopg2-binary
+# Google Calendar integration:
+#   authlib                       — OAuth 2.0 flow with FastAPI
+#   itsdangerous                  — required by Starlette SessionMiddleware
+#   google-auth                   — Service Account credentials (DWD)
+#   google-auth-oauthlib          — completing the per-user OAuth flow
+#   google-api-python-client      — Calendar API client (events.list etc.)
+#   cryptography                  — Fernet symmetric encryption for refresh tokens
+authlib
+itsdangerous
+google-auth
+google-auth-oauthlib
+google-api-python-client
+cryptography

@@ -18,9 +18,12 @@ from sqlalchemy.orm import Session, selectinload
 
 from .auth import require_basic_auth
 from .db import Base, engine, get_db, is_sqlite
+from .google.oauth import router as google_oauth_router
 from .time_utils import utcnow_naive
 from .models import (
     Binding,
+    CalendarConnection,
+    CalendarEvent,
     Call,
     Contact,
     Identity,
@@ -116,6 +119,12 @@ _origins_env = os.environ.get("ALLOWED_ORIGINS", "").strip()
 if _origins_env:
     _origins = [o.strip() for o in _origins_env.split(",") if o.strip()]
 else:
+    # Wide-open CORS is fine for local dev but a deploy-day footgun.
+    # Log loud once so the operator sees it in `docker compose logs`.
+    logger.warning(
+        "ALLOWED_ORIGINS is unset — falling back to '*' (any origin). "
+        "Set ALLOWED_ORIGINS in .env to your public URL to lock this down."
+    )
     _origins = ["*"]
 app.add_middleware(
     CORSMiddleware,
@@ -144,6 +153,7 @@ _OPEN_PREFIXES = (
     "/webhooks/",       # provider-specific auth
     "/admin/",          # X-Admin-Secret
     "/api/admin/",      # X-Admin-Secret
+    "/auth/google/",    # OAuth flow + Google's CSRF state
 )
 
 
@@ -189,9 +199,19 @@ async def _basic_auth_gate(request, call_next):
         )
     return await call_next(request)
 
+# Session cookie support is required by authlib's OAuth flow (state
+# parameter is stored signed in the session). Re-uses ADMIN_SECRET as
+# the signing key — it's already a high-entropy secret.
+from starlette.middleware.sessions import SessionMiddleware  # noqa: E402
+
+_session_secret = os.environ.get("ADMIN_SECRET") or os.environ.get("SESSION_SECRET")
+if _session_secret:
+    app.add_middleware(SessionMiddleware, secret_key=_session_secret, https_only=False, same_site="lax")
+
 app.include_router(whatsapp_router)
 app.include_router(frejun_router)
 app.include_router(periskope_router)
+app.include_router(google_oauth_router)
 app.include_router(admin_router)
 
 
@@ -459,6 +479,18 @@ def health(db: Session = Depends(get_db)):
             "webhook_secret_configured": bool(os.environ.get("FREJUN_WEBHOOK_SECRET")),
             "api_key_configured": bool(os.environ.get("FREJUN_API_KEY")),
         },
+        "google_calendar": {
+            # OAuth flow needs all three; if any are missing the dashboard
+            # hides the "Connect your calendar" banner because the click
+            # would just 503.
+            "configured": bool(
+                os.environ.get("GOOGLE_CLIENT_ID")
+                and os.environ.get("GOOGLE_CLIENT_SECRET")
+                and os.environ.get("GOOGLE_REDIRECT_URI")
+            ),
+            "active_connections": db.query(func.count(CalendarConnection.id))
+                .filter(CalendarConnection.status == "active").scalar() or 0,
+        },
     }
 
 
@@ -579,6 +611,43 @@ def list_whatsapp_messages(
             "is_edited": r.is_edited,
             "is_deleted": r.is_deleted,
             "resolution_method": r.resolution_method,
+        }
+        for r in rows
+    ]
+
+
+# ── Google-Calendar-sourced upcoming meetings ──────────────────────────
+# Distinct from /api/merchants/{shop}/meetings (which serves the
+# Fireflies+WA-extracted Meeting table). This endpoint queries the
+# new calendar_events table directly so the dashboard can show events
+# we've fetched live from Google Calendar.
+@app.get("/api/shops/{shop_url}/upcoming-meetings")
+def upcoming_calendar_meetings(
+    shop_url: str,
+    limit: int = Query(10, ge=1, le=100),
+    db: Session = Depends(get_db),
+):
+    _get_shop_or_404(db, shop_url)
+    now = utcnow_naive()
+    rows = (
+        db.query(CalendarEvent)
+        .filter(CalendarEvent.shop_url == shop_url.lower())
+        .filter((CalendarEvent.end_time.is_(None)) | (CalendarEvent.end_time > now))
+        .order_by(CalendarEvent.start_time)
+        .limit(limit)
+        .all()
+    )
+    return [
+        {
+            "id": r.id,
+            "google_event_id": r.google_event_id,
+            "summary": r.summary,
+            "description": r.description,
+            "start_time": r.start_time.isoformat() if r.start_time else None,
+            "end_time": r.end_time.isoformat() if r.end_time else None,
+            "meeting_link": r.meeting_link,
+            "organizer_email": r.organizer_email,
+            "attendee_emails": r.attendee_emails or [],
         }
         for r in rows
     ]

@@ -1,4 +1,5 @@
 from sqlalchemy import (
+    JSON,
     Boolean,
     CheckConstraint,
     Column,
@@ -288,4 +289,76 @@ class Binding(Base):
             name="uq_bindings_natural_key",
         ),
         CheckConstraint("identity_a_id < identity_b_id", name="ck_bindings_undirected_order"),
+    )
+
+
+# ── Google Calendar integration ─────────────────────────────────────────
+# Two auth modes share one schema. Refresh tokens are stored encrypted
+# (Fernet); see crm_app.google.crypto.
+class CalendarConnection(Base):
+    __tablename__ = "calendar_connections"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_email = Column(String, unique=True, nullable=False)
+    auth_mode = Column(String, nullable=False, default="user_oauth")
+    # Fernet ciphertext of the user's refresh token. NULL on DWD
+    # connections (service account doesn't need a per-user token).
+    refresh_token_encrypted = Column(Text, nullable=True)
+    access_token = Column(Text, nullable=True)
+    token_expires_at = Column(DateTime, nullable=True)
+    last_synced_at = Column(DateTime, nullable=True)
+    status = Column(String, nullable=False, default="active")  # active|failing|revoked
+    last_error = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=utcnow_naive, nullable=False)
+    updated_at = Column(DateTime, default=utcnow_naive, onupdate=utcnow_naive, nullable=False)
+
+    events = relationship("CalendarEvent", back_populates="connection", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        CheckConstraint(
+            "auth_mode IN ('user_oauth','dwd_impersonation')",
+            name="ck_calendar_connections_auth_mode",
+        ),
+        CheckConstraint(
+            "status IN ('active','failing','revoked')",
+            name="ck_calendar_connections_status",
+        ),
+    )
+
+
+class CalendarEvent(Base):
+    __tablename__ = "calendar_events"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    google_event_id = Column(String, nullable=False, index=True)
+    connection_id = Column(Integer, ForeignKey("calendar_connections.id"), nullable=False, index=True)
+
+    summary = Column(Text, nullable=True)
+    description = Column(Text, nullable=True)
+    start_time = Column(DateTime, nullable=False, index=True)
+    end_time = Column(DateTime, nullable=True)
+    meeting_link = Column(Text, nullable=True)
+    # JSON-encoded list of {email, response_status} dicts. SQLAlchemy's
+    # JSON type maps to TEXT on SQLite and JSONB on Postgres automatically.
+    attendee_emails = Column(JSON, nullable=True)
+    organizer_email = Column(String, nullable=True)
+
+    shop_url = Column(String, ForeignKey("shops.shop_url"), nullable=True, index=True)
+    resolution_status = Column(String, nullable=False, default="pending")
+    raw_payload = Column(JSON, nullable=True)
+
+    created_at = Column(DateTime, default=utcnow_naive, nullable=False)
+    updated_at = Column(DateTime, default=utcnow_naive, onupdate=utcnow_naive, nullable=False)
+
+    connection = relationship("CalendarConnection", back_populates="events")
+
+    __table_args__ = (
+        # One event per (connection, google id). Reruns of the sync upsert.
+        UniqueConstraint("connection_id", "google_event_id",
+                         name="uq_calendar_events_connection_event"),
+        Index("ix_calendar_events_shop_url_start_time", "shop_url", "start_time"),
+        CheckConstraint(
+            "resolution_status IN ('pending','resolved','unresolvable','conflict')",
+            name="ck_calendar_events_resolution_status",
+        ),
     )

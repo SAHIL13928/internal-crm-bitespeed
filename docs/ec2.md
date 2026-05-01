@@ -1,272 +1,394 @@
-# Deploy to a single EC2 box
+# Deploy on a single EC2 box (operator runbook)
 
-> Single Linux machine running Postgres + the FastAPI app side-by-side
-> via Docker Compose. Cheaper than App Runner + RDS, more manual ops.
-> Good for an internal demo / staging. ~30 min to first URL.
-
-## What you're standing up
+Single Ubuntu host. Postgres + the FastAPI app run as Docker containers
+on the same machine. nginx on the host proxies port 80 → app:8000.
+Senior takes over from here for DNS + SSL.
 
 ```
-your laptop  ──ssh──►  EC2 instance (Ubuntu)
-                          │
-                          ├─ docker compose up
-                          │     ├── postgres container  (data on a volume)
-                          │     └── app container       (FastAPI, port 8000)
-                          │
-                          └─ optional: nginx (port 80/443) → app:8000
-                                       certbot (free Let's Encrypt cert)
+                                ┌─ EC2 (ubuntu) ───────────────────┐
+public traffic ──:80──► nginx ──┤  127.0.0.1:8000 → docker app    │
+                                │                  └─ postgres    │
+                                │                     (no host pt)│
+                                └──────────────────────────────────┘
 ```
 
-## 0. Before you SSH
+EC2 used in this walkthrough:
+`ec2-34-239-140-115.compute-1.amazonaws.com`
 
-On your laptop:
+---
 
+## Step 1 — Local prep (your laptop, Windows)
+
+The PEM file (`internalcrm.pem`) lives wherever you saved it. Lock its
+permissions or SSH refuses to use it.
+
+PowerShell:
+```powershell
+icacls .\internalcrm.pem /inheritance:r
+icacls .\internalcrm.pem /grant:r "$($env:USERNAME):(R)"
+```
+
+Git Bash / WSL:
 ```bash
-# Your private key should be saved somewhere local. Lock it down so SSH
-# doesn't refuse it.
-chmod 600 ~/.ssh/cs-crm-ec2.pem
+chmod 600 ./internalcrm.pem
 ```
 
-Open the EC2 security group (AWS Console → EC2 → your instance →
-Security tab → click the SG → Edit inbound rules) and allow:
-
-| Port | Source | Why |
-|---|---|---|
-| 22  | your IP | SSH |
-| 80  | 0.0.0.0/0 | HTTP (for nginx + Let's Encrypt) |
-| 443 | 0.0.0.0/0 | HTTPS |
-| 8000 | your IP **only**, temporarily | direct app access while debugging |
-
-## 1. SSH in
-
+Test SSH:
 ```bash
-ssh -i ~/.ssh/cs-crm-ec2.pem ubuntu@<EC2-PUBLIC-IP>
-# (use ec2-user@... if it's an Amazon Linux AMI, root@... rare)
+ssh -i ./internalcrm.pem ubuntu@ec2-34-239-140-115.compute-1.amazonaws.com
+# If that fails with "permission denied (publickey)", try ec2-user:
+ssh -i ./internalcrm.pem ec2-user@ec2-34-239-140-115.compute-1.amazonaws.com
 ```
 
-Everything below runs **on the EC2 box**.
+**Security group** (AWS Console → EC2 → instance → Security tab → SG →
+Edit inbound rules) — only two ports need to be open:
 
-## 2. Install Docker + Compose plugin
+| Port | Source     | Why                              |
+|------|------------|----------------------------------|
+| 22   | your IP    | SSH (already open)               |
+| 80   | 0.0.0.0/0  | nginx → public HTTP              |
+
+Port 8000 stays **closed**. The app container is bound to the host's
+loopback (`127.0.0.1:8000`) so even if 8000 were open in the SG, the
+app wouldn't be reachable directly. nginx is the only way in.
+
+If port 80 isn't open in the SG, ping Arindam:
+
+> Bhai SG mein port 80 inbound bhi khol do please, nginx uspe expose hoga
+
+---
+
+## Step 2 — Code on the box
+
+SSH in, then:
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y docker.io docker-compose-v2 git
+sudo apt-get install -y git docker.io docker-compose-plugin nginx
+sudo systemctl enable docker
+sudo systemctl start docker
 sudo usermod -aG docker $USER
-# Log out + back in so the group change takes effect, or run:
-newgrp docker
-docker --version && docker compose version
 ```
 
-## 3. Clone the repo
+> **Critical — read this:** the `usermod -aG docker` change does not
+> take effect in your current shell. You **must** log out and SSH back
+> in (or `exec su -l $USER`) before running any `docker` command.
+> Otherwise you get `permission denied` on the docker socket and waste
+> 20 minutes wondering why. This trips everyone up at least once.
+
+After re-logging in, sanity check:
 
 ```bash
-cd ~
-git clone https://github.com/<your-org>/<your-repo>.git cs-crm
-cd cs-crm
+docker --version
+docker compose version
+docker ps   # should print an empty table, not an error
 ```
 
-(If the repo is private, configure a GitHub deploy key on the EC2 or
-clone via HTTPS with a personal access token.)
+Then clone:
 
-## 4. Set up the secrets file
+```bash
+git clone https://github.com/SAHIL13928/internal-crm-bitespeed.git \
+    ~/internal-crm-bitespeed
+cd ~/internal-crm-bitespeed
+```
+
+If the repo is private, set up a GitHub deploy key on the box first
+(or clone with HTTPS + a personal access token — either works).
+
+---
+
+## Step 3 — Create `.env` on the box
 
 ```bash
 cp .env.example .env
 nano .env
 ```
 
-Fill in **every value**. Critical ones:
+Fill in every value. Required vs. optional:
 
-- `POSTGRES_PASSWORD` — pick a long random string. Generate one:
-  ```bash
-  python3 -c "import secrets; print(secrets.token_urlsafe(32))"
-  ```
-- `API_PASSWORD` — same generator.
-- `ALLOWED_ORIGINS` — start with `http://<EC2-PUBLIC-IP>:8000` for
-  initial testing. Update to your `https://your-domain.com` after
-  nginx is set up.
-- All four webhook secrets — these need to match what's configured on
-  FreJun / Periskope console / the WA bridge.
-- `ADMIN_SECRET` — long random.
+| Variable                       | Required? | Notes |
+|--------------------------------|-----------|-------|
+| `POSTGRES_DB`                  | required  | Leave default `cs_crm` unless you have a reason. |
+| `POSTGRES_USER`                | required  | Leave default `cs_crm`. |
+| `POSTGRES_PASSWORD`            | required  | Long random string — see below. |
+| `API_USERNAME`                 | required  | Default `bitespeed`. |
+| `API_PASSWORD`                 | required  | Long random — basic-auth gate on the dashboard + read API. |
+| `ALLOWED_ORIGINS`              | required  | Set to `http://ec2-34-239-140-115.compute-1.amazonaws.com`. Comma-separated, no trailing slash. |
+| `ADMIN_SECRET`                 | required  | Long random. Guards `/admin/conflicts` AND signs the OAuth session cookie. |
+| `WHATSAPP_WEBHOOK_SECRET`      | optional  | Only needed if WA webhook is wired up. |
+| `PERISKOPE_SIGNING_SECRET`     | optional  | Only needed for Periskope webhook. |
+| `FREJUN_WEBHOOK_SECRET`        | optional  | Only needed for FreJun webhook. |
+| `PERISKOPE_API_KEY` / `PERISKOPE_PHONE` | optional | Only for manual backfill scripts. |
+| `FREJUN_API_KEY`               | optional  | Only for manual backfill scripts. |
+| `GOOGLE_CLIENT_ID` / `_SECRET` / `_REDIRECT_URI` / `GOOGLE_SERVICE_ACCOUNT_JSON` / `GOOGLE_WORKSPACE_DOMAIN` | optional | Calendar sync. App boots without these; calendar endpoints 503 until configured. |
+| `CALENDAR_TOKEN_ENCRYPTION_KEY`| optional  | Fernet key, only needed if Calendar sync is on. |
 
-Save (`Ctrl-O`, `Enter`, `Ctrl-X`).
+**Fresh secrets generated this session — paste these directly:**
 
-## 5. Build + run the stack
+```
+POSTGRES_PASSWORD=PBxJh3ZbAsOxZYv5uoMZrCLB6HFHkbxq
+API_PASSWORD=pH81FmwP3EGA-qjRJbBBj3GlTZ9k4Uj8
+ADMIN_SECRET=hARbf0W9hs6Dotoa21j_XeMw_lVZ5mkfUHhXsFx4Wyk
+```
+
+Save (`Ctrl-O`, `Enter`, `Ctrl-X`). Lock it down:
+
+```bash
+chmod 600 .env
+```
+
+---
+
+## Step 4 — Start the stack
 
 ```bash
 docker compose up -d --build
 ```
 
-First time: ~3-5 min (Docker pulls Postgres image, builds the app
-multi-stage Dockerfile, npm installs, Vite builds the frontend).
+First run: ~3-5 min (pulls Postgres image, multi-stage build with npm
++ Vite, then bootstrap loads ~1600 shops + WA groups + Fireflies
+meetings into Postgres).
 
-Watch it come up:
+Tail the app log:
 
 ```bash
 docker compose logs -f app
 ```
 
-You'll see the bootstrap script populate the database from CSVs:
+What you want to see, in order:
 
 ```
 [bootstrap] shops in DB: 0
-[bootstrap] [1/5] loading shops + contacts + whatsapp_groups
-[bootstrap] [2/5] enriching brand names ...
-[bootstrap] [3/5] loading finance contacts
-[bootstrap] [4/5] loading fireflies meetings
+[bootstrap] [1/4] loading shops + contacts + whatsapp_groups
+[bootstrap] [2/4] enriching brand names ...
+[bootstrap] [3/4] loading finance contacts
+[bootstrap] [4/4] loading fireflies meetings
 [bootstrap] [5/5] seeding identity graph bindings
 [bootstrap] bootstrap complete in 60.0s
-INFO: Uvicorn running on http://0.0.0.0:8000
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000
 ```
 
-Press `Ctrl-C` to detach (containers keep running).
+`Ctrl-C` to detach (containers keep running).
 
-## 6. Smoke test on the EC2
+Confirm the app is up internally:
 
 ```bash
-curl http://localhost:8000/api/health
-# → JSON with shops > 1600, calls > 0, etc.
-
-curl -u 'bitespeed:<API_PASSWORD>' \
-     http://localhost:8000/api/merchants?q=avishya
-# → JSON array with the merchant
+curl http://127.0.0.1:8000/api/health
+# → {"status":"ok", "shops": 1600+, "meetings": ..., ...}
 ```
 
-If `shops` is `0`, the bootstrap didn't run. Check `docker compose logs app`.
+If `shops` is 0, bootstrap silently failed — `docker compose logs app
+| grep bootstrap` to see the traceback. The container will still be up.
 
-## 7. Verify from your laptop (HTTP, temporary)
+The `calendar-sync` sidecar comes up alongside `app`. Until you complete
+step 4b it has no connections to sync and runs an instant no-op every
+10 min — fine to leave running.
+
+---
+
+## Step 4b — Enable Google Calendar (optional, do later)
+
+Skip this on first deploy if you just want the URL handed back. Calendar
+sync is a separate feature; everything else (search, calls, WhatsApp,
+issues) works without it.
+
+**One-time GCP setup** (full walkthrough in `docs/calendar_setup.md`):
+
+1. Enable Calendar API on a GCP project.
+2. Create an OAuth 2.0 Client ID (Web application).
+   - Authorized redirect URI must be exactly:
+     `http://ec2-34-239-140-115.compute-1.amazonaws.com/auth/google/callback`
+   - When the senior swaps in HTTPS + a real domain, add that redirect
+     URI too — Google permits multiple.
+3. Configure OAuth consent screen, **User type: Internal**, scope
+   `https://www.googleapis.com/auth/calendar.readonly`.
+
+**On the EC2 box** — fill these into `.env` (the Calendar block is
+already commented in `.env.example`):
 
 ```bash
-curl http://<EC2-PUBLIC-IP>:8000/api/health
+GOOGLE_CLIENT_ID=<from GCP>
+GOOGLE_CLIENT_SECRET=<from GCP>
+GOOGLE_REDIRECT_URI=http://ec2-34-239-140-115.compute-1.amazonaws.com/auth/google/callback
+GOOGLE_WORKSPACE_DOMAIN=bitespeed.co
+CALENDAR_TOKEN_ENCRYPTION_KEY=<run the command below to generate>
 ```
 
-If that works, you have a live URL. Send your manager
-`http://<EC2-PUBLIC-IP>:8000/app/` and they can browse.
-
-> **Don't ship over plain HTTP for long.** Browsers warn on basic-auth
-> over HTTP. Set up HTTPS in step 8.
-
-## 8. (recommended) HTTPS via nginx + Let's Encrypt
-
-You need a domain pointing at the EC2 IP — point an A record at the
-EC2 public IP. Wait for DNS to propagate (~5 min).
+Generate the Fernet key once (used to encrypt refresh tokens at rest):
 
 ```bash
-sudo apt-get install -y nginx certbot python3-certbot-nginx
+docker compose exec app python -c \
+  "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 ```
 
-Create the nginx config:
+Apply the new env to both `app` and `calendar-sync` containers:
+
+```bash
+docker compose up -d
+```
+
+(No `--build` — env-only change. The image doesn't need to rebuild.)
+
+**Each AM connects their calendar:**
+
+Open in a browser (basic-auth into the dashboard first):
+
+```
+http://ec2-34-239-140-115.compute-1.amazonaws.com/auth/google/connect
+```
+
+Google's consent screen → grant → returns to `/app/?google_connected=1`
+with a "Calendar connected" toast. The search screen now shows a green
+"Calendar: N accounts · synced …" badge.
+
+**Verify the sidecar is syncing:**
+
+```bash
+docker compose logs --tail=50 calendar-sync
+# expect: "syncing <user>@bitespeed.co (mode=user_oauth)"
+#         "→ <user>: fetched=N upserted=N resolved=M"
+```
+
+The dashboard's **Upcoming** tab on a merchant profile reads from
+`calendar_events` directly — events appear within a sync cycle (max
+10 min). If the merchant has no upcoming events whose attendee emails
+resolve to their `shop_url` via the identity graph, the tab stays
+empty (this is by design — see `docs/db_schema.md` "Identity graph").
+
+---
+
+## Step 5 — nginx as reverse proxy
 
 ```bash
 sudo nano /etc/nginx/sites-available/cs-crm
 ```
 
-Paste:
+Paste **exactly** this:
 
 ```nginx
 server {
-    listen 80;
-    server_name your-domain.com;
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    server_name _;
 
-    client_max_body_size 5M;
+    client_max_body_size 25M;
 
     location / {
         proxy_pass http://127.0.0.1:8000;
-        proxy_set_header Host              $host;
-        proxy_set_header X-Real-IP         $remote_addr;
-        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_read_timeout 90s;
     }
 }
 ```
 
-Save, enable, reload:
+Save. Enable it and disable the stock `default` site (so this one wins
+the `default_server` slot):
 
 ```bash
-sudo ln -s /etc/nginx/sites-available/cs-crm /etc/nginx/sites-enabled/
-sudo rm /etc/nginx/sites-enabled/default
-sudo nginx -t && sudo systemctl reload nginx
+sudo ln -sf /etc/nginx/sites-available/cs-crm /etc/nginx/sites-enabled/cs-crm
+sudo rm -f /etc/nginx/sites-enabled/default
+sudo nginx -t
 ```
 
-Now grab a free Let's Encrypt cert:
+`nginx -t` must end with:
 
-```bash
-sudo certbot --nginx -d your-domain.com
-# Follow the prompts. Choose "redirect HTTP → HTTPS" when asked.
+```
+nginx: configuration file /etc/nginx/nginx.conf test is successful
 ```
 
-certbot will auto-renew via a cron job — nothing else to do.
-
-After this works, **close port 8000** in the security group (only nginx
-on 80/443 should be public-facing).
-
-Update `ALLOWED_ORIGINS` in `.env` to `https://your-domain.com` and
-restart the app:
+If it doesn't, paste the exact error to the senior — don't reload a
+broken config.
 
 ```bash
-docker compose up -d
+sudo systemctl reload nginx
 ```
 
-## Day-2 ops
+---
+
+## Step 6 — Smoke test from outside
+
+From your laptop:
 
 ```bash
-# Stop / start
+curl -i http://ec2-34-239-140-115.compute-1.amazonaws.com/api/health
+# expected: HTTP/1.1 200 OK + JSON {"status":"ok", ...}
+```
+
+Then in a browser:
+
+```
+http://ec2-34-239-140-115.compute-1.amazonaws.com/app/
+```
+
+You should see a basic-auth prompt. Username `bitespeed`, password is
+whatever you put in `API_PASSWORD`. After auth → the dashboard.
+
+---
+
+## Step 7 — Hand off to Arindam
+
+Paste-ready Slack message:
+
+```
+Bhai app deployed on the EC2 box, nginx setup done.
+URL: http://ec2-34-239-140-115.compute-1.amazonaws.com/
+Health: /api/health
+Frontend: /app/  (basic auth: bitespeed / <password>)
+DB schema: docs/db_schema.md
+Postgres + app dono iss box pe Docker mein chal rahe hain.
+Aage ka SSL/DNS aap dekh lo.
+```
+
+(Send the password out-of-band — DM, not in the channel.)
+
+---
+
+## Step 8 — Troubleshooting (the four things that actually go wrong)
+
+| Symptom | Root cause | Fix |
+|---|---|---|
+| `docker: command not found` or `permission denied` on docker socket | `usermod -aG docker` hasn't taken effect in your current shell | Log out, SSH back in. `groups` should now list `docker`. |
+| `502 Bad Gateway` from nginx | App container is down or crashing | `docker compose ps` — is it up? `docker compose logs app` — what's the traceback? |
+| `connection refused` from outside the box | SG port 80 not open | Check SG in AWS Console; ping Arindam to open it. |
+| Browser doesn't prompt for basic auth at `/app/` | `API_USERNAME` / `API_PASSWORD` missing in `.env` (the app returns 503 instead of 401 in this case — see logs) | Edit `.env`, then `docker compose up -d` to restart with the new env. |
+| Frontend renders 404s for `/app/` | Frontend dist not built into the image | `docker compose up -d --build` (the `--build` flag is the important bit). |
+
+---
+
+## Day-2 ops cheatsheet
+
+```bash
+# stop / start
 docker compose down
 docker compose up -d
 
-# Pull new code + redeploy
+# pull new code + redeploy
 git pull
 docker compose up -d --build
 
-# View logs
+# logs
 docker compose logs -f app
 docker compose logs -f postgres
 
-# psql into Postgres
+# psql shell
 docker compose exec postgres psql -U cs_crm -d cs_crm
 
-# Run a backfill script inside the app container
+# run a backfill script in the app container
 docker compose exec app python scripts/backfill_periskope.py
 
-# Reset the database (DESTROYS DATA)
+# nuke the DB volume (DESTROYS DATA)
 docker compose down -v
 docker compose up -d
 ```
 
-## Troubleshooting
-
-| Symptom | Fix |
-|---|---|
-| `ssh: connection refused` | Security group doesn't allow port 22 from your IP |
-| `permission denied (publickey)` | Wrong username (`ubuntu` vs `ec2-user`), or key not 600 |
-| `docker compose up` build fails on `npm ci` | Make sure `frontend/package-lock.json` is committed in the repo |
-| App keeps crashing — `connection refused` | Postgres not ready yet. `depends_on: condition: service_healthy` should handle it; if not, restart with `docker compose up -d` |
-| `/api/health` shows `shops: 0` after boot | Bootstrap script failed silently. `docker compose logs app | grep bootstrap` |
-| Browser warns "Not secure" | You're on HTTP. Finish step 8. |
-| `curl` hangs from laptop | Security group blocking 80/443/8000 |
-
-## Backups
-
-Postgres data lives on a Docker volume named `cs_crm_postgres_data` on
-the EC2 host's local disk. **No automated backups by default.** For a
-demo it's fine; for production:
+Quick manual Postgres backup:
 
 ```bash
-# Quick manual backup
-docker compose exec -T postgres pg_dump -U cs_crm cs_crm | gzip > /tmp/cs_crm_$(date +%F).sql.gz
-
-# Restore
-gunzip -c /tmp/cs_crm_2026-04-30.sql.gz | docker compose exec -T postgres psql -U cs_crm cs_crm
+docker compose exec -T postgres pg_dump -U cs_crm cs_crm \
+  | gzip > ~/cs_crm_$(date +%F).sql.gz
 ```
-
-For real production, set up a daily cron that uploads to S3.
-
-## Security checklist before sharing the URL
-
-- [ ] HTTPS working (step 8)
-- [ ] Port 8000 closed in security group (only 80/443 public)
-- [ ] `API_PASSWORD` is strong and not shared in chat/screenshots
-- [ ] `.env` file on the EC2 is `chmod 600`: `chmod 600 ~/cs-crm/.env`
-- [ ] SSH key removed from anywhere it leaked (chat, Slack)
-- [ ] `ALLOWED_ORIGINS` is your https domain only, not `*`

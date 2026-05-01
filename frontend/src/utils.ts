@@ -1,4 +1,5 @@
-// Pure helpers — no DOM mutations live here.
+// Pure helpers — DOM selectors, formatters, pill renderers. Match the
+// mockup's bordered-pill style: `bg-X-50 text-X-700 border border-X-100`.
 
 export const $  = <T extends HTMLElement = HTMLElement>(sel: string): T | null => document.querySelector<T>(sel);
 export const $$ = <T extends HTMLElement = HTMLElement>(sel: string): T[] => Array.from(document.querySelectorAll<T>(sel));
@@ -9,27 +10,38 @@ export function esc(s: string | null | undefined): string {
                   .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
-export function fmtAbsolute(iso: string | null | undefined, opts: { withTime?: boolean } = { withTime: true }): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return "";
-  const pad = (n: number) => String(n).padStart(2, "0");
-  const date = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-  if (!opts.withTime) return date;
-  return `${date} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-
+// Mockup format: "Thu, Apr 23 · 10:30 AM"
 export function fmtDayLabel(iso: string | null | undefined): string {
   if (!iso) return "";
   const d = new Date(iso);
   if (isNaN(d.getTime())) return "";
-  // e.g. "Thu, Apr 23 · 10:30 AM"
-  const days = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
-  const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   const hh = d.getHours() % 12 || 12;
   const mm = String(d.getMinutes()).padStart(2, "0");
   const ampm = d.getHours() >= 12 ? "PM" : "AM";
   return `${days[d.getDay()]}, ${months[d.getMonth()]} ${d.getDate()} · ${hh}:${mm} ${ampm}`;
+}
+
+// "Mon · 2:00 PM" — short variant for activity rows
+export function fmtShortDay(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "—";
+  const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const hh = d.getHours() % 12 || 12;
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  const ampm = d.getHours() >= 12 ? "PM" : "AM";
+  return `${days[d.getDay()]} · ${hh}:${mm} ${ampm}`;
+}
+
+// "Mon 11:04" — even shorter for the calls list
+export function fmtTinyTime(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "—";
+  const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  return `${days[d.getDay()]} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
 export function fmtRelative(iso: string | null | undefined): string {
@@ -49,6 +61,14 @@ export function fmtRelative(iso: string | null | undefined): string {
   return `${Math.floor(months / 12)}y ago`;
 }
 
+export function fmtDuration(sec: number | null | undefined): string {
+  if (sec == null) return "—";
+  if (sec < 60) return `${Math.round(sec)}s`;
+  const m = Math.floor(sec / 60);
+  const s = Math.round(sec % 60);
+  return `${m}m ${s}s`;
+}
+
 export function initials(name: string | null | undefined): string {
   if (!name) return "?";
   const parts = name.replace(/\./g, " ").split(/\s+/).filter(Boolean);
@@ -57,60 +77,69 @@ export function initials(name: string | null | undefined): string {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
-export function avatarStack(names: (string | null | undefined)[], max = 3): string {
-  const items = names.filter((n): n is string => Boolean(n)).slice(0, max);
-  return items.map((n) => `<span class="avatar" title="${esc(n)}">${esc(initials(n))}</span>`).join("");
+// Avatar with rotating color palette so attendee stacks aren't all indigo.
+const AVATAR_COLORS = [
+  "bg-indigo-100 text-indigo-700",
+  "bg-emerald-100 text-emerald-700",
+  "bg-amber-100 text-amber-700",
+  "bg-rose-100 text-rose-700",
+  "bg-sky-100 text-sky-700",
+  "bg-fuchsia-100 text-fuchsia-700",
+];
+function colorFor(seed: string): string {
+  let h = 0; for (const c of seed) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return AVATAR_COLORS[h % AVATAR_COLORS.length];
 }
 
-// ── pills ────────────────────────────────────────────────────────────────
+export function avatar(name: string | null | undefined, size: "sm" | "md" = "md"): string {
+  const ini = esc(initials(name));
+  const cls = colorFor(name || "?");
+  const dim = size === "sm" ? "w-5 h-5 text-[9px]" : "w-6 h-6 text-[10px]";
+  return `<div class="${dim} rounded-full ${cls} grid place-items-center font-semibold ring-2 ring-white" title="${esc(name || "")}">${ini}</div>`;
+}
+
+export function avatarStack(names: (string | null | undefined)[], max = 3, size: "sm" | "md" = "md"): string {
+  const items = names.filter((n): n is string => Boolean(n)).slice(0, max);
+  if (items.length === 0) return "";
+  return `<div class="flex -space-x-1 shrink-0">${items.map((n) => avatar(n, size)).join("")}</div>`;
+}
+
+// ── Pills (match mockup: filled bg + border) ────────────────────────────
 export function healthPill(status: string | null | undefined): string {
   if (!status) return "";
   const s = status.toLowerCase();
-  const cls = s === "at_risk" ? "pill-risk"
-           : s === "healthy"  ? "pill-healthy"
-           : s === "dnc"      ? "pill-dnc"
-           : s === "concerned" ? "pill-concerned"
-           : "pill-unknown";
-  const label = s === "at_risk" ? "Growth At risk"
-              : s === "dnc"     ? "DNC"
-              : status.charAt(0).toUpperCase() + status.slice(1);
-  return `<span class="pill ${cls}">${esc(label)}</span>`;
+  if (s === "at_risk") return `<span class="text-xs px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-100 flex items-center gap-1.5"><span class="dot bg-amber-500"></span>At risk</span>`;
+  if (s === "healthy") return `<span class="text-xs px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100 flex items-center gap-1.5"><span class="dot bg-emerald-500"></span>Healthy</span>`;
+  if (s === "dnc")     return `<span class="text-xs px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-100">DNC</span>`;
+  if (s === "concerned") return `<span class="text-xs px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-100 flex items-center gap-1.5"><span class="dot bg-amber-500"></span>Concerned</span>`;
+  return `<span class="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-ink-700 border border-gray-200">${esc(status)}</span>`;
 }
 
 export function priorityPill(p: string | null | undefined): string {
   if (!p) return "";
   const s = p.toLowerCase();
-  const cls = s === "high" ? "pill-high" : s === "low" ? "pill-low" : "pill-med";
-  return `<span class="pill ${cls}">${esc(p)}</span>`;
+  if (s === "high") return `<span class="text-xs px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-100 font-medium">High</span>`;
+  if (s === "low")  return `<span class="text-xs px-2 py-0.5 rounded-full bg-sky-50 text-sky-700 border border-sky-100 font-medium">Low</span>`;
+  return `<span class="text-xs px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-100 font-medium">Med</span>`;
 }
 
 export function statusPill(s: string | null | undefined): string {
   if (!s) return "";
   const k = s.toLowerCase();
-  const cls = k === "open" ? "pill-open"
-           : k === "in_progress" ? "pill-progress"
-           : k === "resolved" ? "pill-resolved"
-           : k === "attention" ? "pill-attention"
-           : "pill-info";
-  const label = k === "in_progress" ? "In progress" : s.charAt(0).toUpperCase() + s.slice(1);
-  return `<span class="pill ${cls}">${esc(label)}</span>`;
+  if (k === "open")        return `<span class="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-ink-700 border border-gray-200">Open</span>`;
+  if (k === "in_progress") return `<span class="text-xs px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-100">In progress</span>`;
+  if (k === "resolved")    return `<span class="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100">Resolved</span>`;
+  if (k === "unresolved")  return `<span class="text-[10px] px-1.5 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-100">Unresolved</span>`;
+  if (k === "attention")   return `<span class="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-100">Attention</span>`;
+  if (k === "informational") return `<span class="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-ink-700 border border-gray-200">Informational</span>`;
+  return `<span class="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-ink-700 border border-gray-200">${esc(s)}</span>`;
 }
 
-export function directionPill(d: string | null | undefined): string {
-  if (!d) return "";
-  const out = d.startsWith("out");
-  return `<span class="pill ${out ? "pill-out" : "pill-in"}">${out ? "↗ out" : "↙ in"}</span>`;
+export function topicPill(label: string): string {
+  return `<span class="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-ink-700 border border-gray-200">${esc(label)}</span>`;
 }
 
-export function connectedDot(c: boolean): string {
-  return `<span class="inline-block w-2 h-2 rounded-full ${c ? "bg-emerald-500" : "bg-slate-300"}" title="${c ? "connected" : "no answer"}"></span>`;
-}
-
-// ── DOM helpers ──────────────────────────────────────────────────────────
-export function emptyBlock(text: string): string {
-  return `<div class="text-sm text-slate-500 italic py-10 text-center">${esc(text)}</div>`;
-}
-
+// ── Toast ────────────────────────────────────────────────────────────────
 export function toast(msg: string): void {
   const t = $("#toast");
   if (!t) return;
@@ -121,8 +150,18 @@ export function toast(msg: string): void {
   (toast as unknown as { _t?: number })._t = window.setTimeout(() => t.classList.add("hidden"), 2200);
 }
 
-// ── Date-range filter helpers (UI only — backend takes since/until) ─────
-export type RangeKey = "today" | "yesterday" | "7d" | "30d" | "month" | "all";
+// ── Date-range helpers ──────────────────────────────────────────────────
+export type RangeKey = "today" | "yesterday" | "7d" | "30d" | "month" | "quarter" | "all";
+
+export const RANGE_LABELS: Record<RangeKey, string> = {
+  today: "Today",
+  yesterday: "Yesterday",
+  "7d": "Last 7 days",
+  "30d": "Last 30 days",
+  month: "This month",
+  quarter: "This quarter",
+  all: "All time",
+};
 
 export function rangeBounds(key: RangeKey): { since?: string; until?: string } {
   const now = new Date();
@@ -133,8 +172,13 @@ export function rangeBounds(key: RangeKey): { since?: string; until?: string } {
     const y = new Date(now); y.setDate(y.getDate() - 1);
     return { since: startOfDay(y).toISOString(), until: endOfDay(y).toISOString() };
   }
-  if (key === "7d")        { const d = new Date(now); d.setDate(d.getDate() - 7);  return { since: d.toISOString() }; }
-  if (key === "30d")       { const d = new Date(now); d.setDate(d.getDate() - 30); return { since: d.toISOString() }; }
-  if (key === "month")     { const d = new Date(now.getFullYear(), now.getMonth(), 1); return { since: d.toISOString() }; }
+  if (key === "7d")      { const d = new Date(now); d.setDate(d.getDate() - 7);  return { since: d.toISOString() }; }
+  if (key === "30d")     { const d = new Date(now); d.setDate(d.getDate() - 30); return { since: d.toISOString() }; }
+  if (key === "month")   { const d = new Date(now.getFullYear(), now.getMonth(), 1); return { since: d.toISOString() }; }
+  if (key === "quarter") {
+    const q = Math.floor(now.getMonth() / 3);
+    const d = new Date(now.getFullYear(), q * 3, 1);
+    return { since: d.toISOString() };
+  }
   return {};
 }

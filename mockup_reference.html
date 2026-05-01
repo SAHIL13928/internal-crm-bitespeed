@@ -1,0 +1,1227 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>CS CRM — Mockup</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] },
+        colors: { ink: { 900: '#0B0D12', 700: '#2A2F3A', 500: '#5B6472', 300: '#AEB4BE' } }
+      }
+    }
+  };
+</script>
+<style>
+  html, body { font-family: 'Inter', system-ui, sans-serif; }
+  .tab-btn[data-active="true"] { color: #111827; border-color: #4f46e5; }
+  .tab-btn { border-color: transparent; }
+  .dot { width:6px; height:6px; border-radius:9999px; display:inline-block; }
+  .waveform-bar { display:inline-block; width:2px; margin:0 1px; background:#c7d2fe; border-radius:1px; }
+  details > summary { list-style: none; cursor: pointer; }
+  details > summary::-webkit-details-marker { display: none; }
+
+  /* Slide-over */
+  #detail-slideover { transform: translateX(100%); transition: transform 200ms ease; }
+  #detail-slideover.is-open { transform: translateX(0); }
+  .detail-view { display: none; }
+  .detail-view.is-active { display: block; }
+
+  /* Time filter dropdown */
+  .time-filter-menu { display: none; }
+  .time-filter[data-open="true"] .time-filter-menu { display: block; }
+</style>
+</head>
+<body class="bg-white text-ink-900 antialiased">
+
+<!-- ========== SEARCH SCREEN ========== -->
+<section id="screen-search" class="min-h-screen flex flex-col items-center justify-center px-6">
+  <div class="w-full max-w-lg">
+    <div class="flex items-center gap-2 mb-10 justify-center">
+      <div class="w-8 h-8 rounded-lg bg-indigo-600 text-white grid place-items-center text-sm font-semibold">C</div>
+      <span class="text-base font-semibold tracking-tight">Customer CRM</span>
+    </div>
+    <h1 class="text-2xl font-semibold tracking-tight text-center mb-1">Search a merchant</h1>
+    <p class="text-sm text-ink-500 text-center mb-6">Type a shopUrl to open its profile.</p>
+    <div class="relative">
+      <input id="search-input" type="text" autocomplete="off"
+        placeholder="e.g. artisanthreads.myshopify.com"
+        class="w-full px-4 py-3 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500" />
+      <div id="search-results" class="absolute left-0 right-0 mt-2 bg-white border border-gray-200 rounded-lg overflow-hidden hidden">
+        <button onclick="openProfile()" class="w-full text-left px-4 py-3 hover:bg-gray-50 flex items-center justify-between">
+          <div>
+            <div class="text-sm font-medium">Artisan Threads</div>
+            <div class="text-xs text-ink-500">artisanthreads.myshopify.com</div>
+          </div>
+          <span class="text-xs px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-100">At risk</span>
+        </button>
+        <button onclick="openProfile()" class="w-full text-left px-4 py-3 hover:bg-gray-50 flex items-center justify-between border-t border-gray-100">
+          <div>
+            <div class="text-sm font-medium">Kindred Coffee Co.</div>
+            <div class="text-xs text-ink-500">kindredcoffee.myshopify.com</div>
+          </div>
+          <span class="text-xs px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100">Healthy</span>
+        </button>
+        <button onclick="openProfile()" class="w-full text-left px-4 py-3 hover:bg-gray-50 flex items-center justify-between border-t border-gray-100">
+          <div>
+            <div class="text-sm font-medium">Northwind Outdoors</div>
+            <div class="text-xs text-ink-500">northwindoutdoors.myshopify.com</div>
+          </div>
+          <span class="text-xs px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-100">DNC</span>
+        </button>
+      </div>
+    </div>
+    <p class="text-xs text-ink-300 mt-6 text-center">Press Enter to open · Esc to clear</p>
+  </div>
+</section>
+
+<!-- ========== MERCHANT PROFILE ========== -->
+<section id="screen-profile" class="hidden min-h-screen bg-gray-50/30">
+
+  <!-- Header -->
+  <header class="sticky top-0 z-20 bg-white border-b border-gray-200">
+    <div class="max-w-6xl mx-auto px-8 py-4 flex items-center justify-between">
+      <div class="flex items-center gap-4">
+        <button onclick="backToSearch()" class="text-ink-500 hover:text-ink-900 text-sm flex items-center gap-1">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
+        </button>
+        <div>
+          <div class="flex items-center gap-2">
+            <h1 class="text-lg font-semibold tracking-tight">Artisan Threads</h1>
+            <span class="text-xs px-2 py-0.5 rounded-md bg-gray-100 text-ink-700 font-medium">Growth</span>
+            <span class="text-xs px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-100 flex items-center gap-1.5">
+              <span class="dot bg-amber-500"></span>At risk
+            </span>
+          </div>
+          <div class="text-xs text-ink-500 mt-0.5">artisanthreads.myshopify.com</div>
+        </div>
+      </div>
+      <div class="flex items-center gap-3">
+        <div class="flex items-center gap-2 text-xs text-ink-500">
+          <div class="w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 grid place-items-center text-[10px] font-semibold">PM</div>
+          Priya Mehra
+        </div>
+        <button onclick="openDNCModal()" class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100 text-xs font-medium hover:bg-emerald-100">
+          <span class="dot bg-emerald-500"></span> Outreach: Open
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- KPI strip -->
+  <div class="max-w-6xl mx-auto px-8 pt-6">
+    <div class="grid grid-cols-6 gap-3">
+      <div class="rounded-lg border border-gray-200 bg-white p-4">
+        <div class="text-[11px] uppercase tracking-wide text-ink-500 font-medium">Upcoming touches</div>
+        <div class="mt-1 flex items-baseline gap-2"><div class="text-2xl font-semibold">5</div><div class="text-xs text-ink-500">next 7d</div></div>
+      </div>
+      <div class="rounded-lg border border-gray-200 bg-white p-4">
+        <div class="text-[11px] uppercase tracking-wide text-ink-500 font-medium">Calls today</div>
+        <div class="mt-1 text-sm"><span class="text-2xl font-semibold">2</span><span class="text-ink-500"> / 3</span></div>
+        <div class="text-xs text-ink-500">attempted · connected</div>
+      </div>
+      <div class="rounded-lg border border-gray-200 bg-white p-4">
+        <div class="text-[11px] uppercase tracking-wide text-ink-500 font-medium">Calls · 7d</div>
+        <div class="mt-1 text-sm"><span class="text-2xl font-semibold">7</span><span class="text-ink-500"> / 12</span></div>
+        <div class="text-xs text-ink-500">58% connect</div>
+      </div>
+      <div class="rounded-lg border border-gray-200 bg-white p-4">
+        <div class="text-[11px] uppercase tracking-wide text-ink-500 font-medium">Meetings · 7d</div>
+        <div class="mt-1 flex items-baseline gap-2"><div class="text-2xl font-semibold">2</div><div class="text-xs text-ink-500">done</div></div>
+      </div>
+      <div class="rounded-lg border border-gray-200 bg-white p-4">
+        <div class="text-[11px] uppercase tracking-wide text-ink-500 font-medium">WhatsApp · 7d</div>
+        <div class="mt-1 flex items-center gap-2">
+          <div class="text-2xl font-semibold">23</div>
+          <span class="text-xs px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-100 flex items-center gap-1"><span class="dot bg-amber-500"></span>Concerned</span>
+        </div>
+      </div>
+      <div class="rounded-lg border border-gray-200 bg-white p-4">
+        <div class="text-[11px] uppercase tracking-wide text-ink-500 font-medium">Open issues</div>
+        <div class="mt-1 flex items-baseline gap-2"><div class="text-2xl font-semibold text-rose-600">2</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tab nav -->
+  <div class="max-w-6xl mx-auto px-8 mt-6 border-b border-gray-200">
+    <nav class="flex gap-6 text-sm">
+      <button class="tab-btn py-3 border-b-2 text-ink-500 hover:text-ink-900" data-tab="upcoming" data-active="true">Upcoming</button>
+      <button class="tab-btn py-3 border-b-2 text-ink-500 hover:text-ink-900" data-tab="calls">Calls &amp; Meetings</button>
+      <button class="tab-btn py-3 border-b-2 text-ink-500 hover:text-ink-900 flex items-center gap-2" data-tab="whatsapp">
+        WhatsApp <span class="text-[10px] px-1.5 rounded-full bg-amber-50 text-amber-700 border border-amber-100">1 unresolved</span>
+      </button>
+      <button class="tab-btn py-3 border-b-2 text-ink-500 hover:text-ink-900 flex items-center gap-2" data-tab="issues">
+        Issues <span class="text-[10px] px-1.5 rounded-full bg-rose-50 text-rose-700 border border-rose-100">2</span>
+      </button>
+      <button class="tab-btn py-3 border-b-2 text-ink-500 hover:text-ink-900" data-tab="notes">Notes</button>
+    </nav>
+  </div>
+
+  <!-- Tab panels -->
+  <main class="max-w-6xl mx-auto px-8 py-8">
+    <div id="tab-upcoming" class="tab-panel">
+      <section>
+        <div class="flex items-baseline justify-between mb-4">
+          <h2 class="text-base font-semibold">Upcoming meetings</h2>
+          <span class="text-xs text-ink-500">3 scheduled</span>
+        </div>
+        <ol class="relative border-l border-gray-200 ml-2 space-y-4 pl-6">
+          <li class="relative">
+            <span class="absolute -left-[31px] top-1.5 w-3 h-3 rounded-full bg-indigo-500 ring-4 ring-white"></span>
+            <div class="flex items-start justify-between gap-4 p-4 rounded-lg border border-gray-200 bg-white hover:border-indigo-300 cursor-pointer" onclick="openDetail('meeting-prep')">
+              <div>
+                <div class="text-xs text-ink-500">Thu, Apr 23 · 10:30–11:00 AM</div>
+                <div class="text-sm font-medium mt-0.5">QBR kickoff with Artisan Threads</div>
+                <div class="text-xs text-ink-500 mt-1">Review Q1 performance, preview Q2 roadmap, align on pricing concerns raised on WhatsApp.</div>
+              </div>
+              <div class="flex -space-x-1 shrink-0">
+                <div class="w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 grid place-items-center text-[10px] font-semibold ring-2 ring-white">PM</div>
+                <div class="w-6 h-6 rounded-full bg-emerald-100 text-emerald-700 grid place-items-center text-[10px] font-semibold ring-2 ring-white">AT</div>
+                <div class="w-6 h-6 rounded-full bg-amber-100 text-amber-700 grid place-items-center text-[10px] font-semibold ring-2 ring-white">RK</div>
+              </div>
+            </div>
+          </li>
+          <li class="relative">
+            <span class="absolute -left-[31px] top-1.5 w-3 h-3 rounded-full bg-gray-300 ring-4 ring-white"></span>
+            <div class="flex items-start justify-between gap-4 p-4 rounded-lg border border-gray-200 bg-white hover:border-indigo-300 cursor-pointer" onclick="openDetail('meeting-prep')">
+              <div>
+                <div class="text-xs text-ink-500">Tue, Apr 28 · 3:00–3:30 PM</div>
+                <div class="text-sm font-medium mt-0.5">Product feedback sync</div>
+                <div class="text-xs text-ink-500 mt-1">Follow-up on bulk-import feature request; confirm scope with PM.</div>
+              </div>
+              <div class="flex -space-x-1 shrink-0">
+                <div class="w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 grid place-items-center text-[10px] font-semibold ring-2 ring-white">PM</div>
+                <div class="w-6 h-6 rounded-full bg-emerald-100 text-emerald-700 grid place-items-center text-[10px] font-semibold ring-2 ring-white">AT</div>
+              </div>
+            </div>
+          </li>
+          <li class="relative">
+            <span class="absolute -left-[31px] top-1.5 w-3 h-3 rounded-full bg-gray-300 ring-4 ring-white"></span>
+            <div class="flex items-start justify-between gap-4 p-4 rounded-lg border border-gray-200 bg-white hover:border-indigo-300 cursor-pointer" onclick="openDetail('meeting-prep')">
+              <div>
+                <div class="text-xs text-ink-500">Fri, May 8 · 11:00 AM</div>
+                <div class="text-sm font-medium mt-0.5">Renewal conversation</div>
+                <div class="text-xs text-ink-500 mt-1">Contract renews June 30. Prep ROI summary; align with finance on discount ceiling.</div>
+              </div>
+              <div class="flex -space-x-1 shrink-0">
+                <div class="w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 grid place-items-center text-[10px] font-semibold ring-2 ring-white">PM</div>
+                <div class="w-6 h-6 rounded-full bg-emerald-100 text-emerald-700 grid place-items-center text-[10px] font-semibold ring-2 ring-white">AT</div>
+              </div>
+            </div>
+          </li>
+        </ol>
+      </section>
+
+      <section class="mt-10">
+        <div class="flex items-baseline justify-between mb-4">
+          <h2 class="text-base font-semibold">Upcoming calls this week</h2>
+          <span class="text-xs text-ink-500">2 scheduled</span>
+        </div>
+        <ol class="relative border-l border-gray-200 ml-2 space-y-4 pl-6">
+          <li class="relative">
+            <span class="absolute -left-[31px] top-1.5 w-3 h-3 rounded-full bg-indigo-500 ring-4 ring-white"></span>
+            <div class="flex items-start justify-between gap-4 p-4 rounded-lg border border-gray-200 bg-white hover:border-indigo-300 cursor-pointer" onclick="openDetail('call-prep')">
+              <div>
+                <div class="text-xs text-ink-500">Wed, Apr 22 · 4:00 PM</div>
+                <div class="text-sm font-medium mt-0.5">Check-in with Aditi (Head of Ops)</div>
+                <div class="text-xs text-ink-500 mt-1">Purpose: acknowledge billing issue raised on WhatsApp, walk through resolution timeline. Last attempt Mon — no answer.</div>
+              </div>
+              <div class="text-xs text-ink-500 shrink-0">Priya · outbound</div>
+            </div>
+          </li>
+          <li class="relative">
+            <span class="absolute -left-[31px] top-1.5 w-3 h-3 rounded-full bg-gray-300 ring-4 ring-white"></span>
+            <div class="flex items-start justify-between gap-4 p-4 rounded-lg border border-gray-200 bg-white hover:border-indigo-300 cursor-pointer" onclick="openDetail('call-prep')">
+              <div>
+                <div class="text-xs text-ink-500">Fri, Apr 24 · 11:30 AM</div>
+                <div class="text-sm font-medium mt-0.5">Onboarding follow-up</div>
+                <div class="text-xs text-ink-500 mt-1">Post-launch 30-day check: confirm shipping integration is stable, gather feedback.</div>
+              </div>
+              <div class="text-xs text-ink-500 shrink-0">Priya · outbound</div>
+            </div>
+          </li>
+        </ol>
+      </section>
+    </div>
+    <div id="tab-calls" class="tab-panel hidden">
+      <!-- Time filter -->
+      <div class="flex items-center justify-between mb-6">
+        <h2 class="text-base font-semibold">Calls &amp; meetings</h2>
+        <div id="tf-calls" class="time-filter relative" data-open="false">
+          <button onclick="toggleTimeFilter('tf-calls')" class="inline-flex items-center gap-2 px-3 py-1.5 text-xs border border-gray-200 rounded-lg bg-white hover:border-gray-300">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+            <span class="time-filter-label font-medium">Last 7 days</span>
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+          </button>
+          <div class="time-filter-menu absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg w-64 p-1 z-10">
+            <button onclick="selectTimeFilter('tf-calls', 'Today')" class="w-full text-left px-3 py-1.5 text-xs rounded hover:bg-gray-100">Today</button>
+            <button onclick="selectTimeFilter('tf-calls', 'Yesterday')" class="w-full text-left px-3 py-1.5 text-xs rounded hover:bg-gray-100">Yesterday</button>
+            <button onclick="selectTimeFilter('tf-calls', 'Last 7 days')" class="w-full text-left px-3 py-1.5 text-xs rounded hover:bg-gray-100 font-medium bg-gray-50">Last 7 days</button>
+            <button onclick="selectTimeFilter('tf-calls', 'Last 30 days')" class="w-full text-left px-3 py-1.5 text-xs rounded hover:bg-gray-100">Last 30 days</button>
+            <button onclick="selectTimeFilter('tf-calls', 'This month')" class="w-full text-left px-3 py-1.5 text-xs rounded hover:bg-gray-100">This month</button>
+            <button onclick="selectTimeFilter('tf-calls', 'This quarter')" class="w-full text-left px-3 py-1.5 text-xs rounded hover:bg-gray-100">This quarter</button>
+            <div class="h-px bg-gray-100 my-1"></div>
+            <button onclick="showCustomRange('tf-calls')" class="w-full text-left px-3 py-1.5 text-xs rounded hover:bg-gray-100 flex items-center justify-between">
+              <span>Custom range</span>
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+            </button>
+            <div class="time-filter-custom hidden border-t border-gray-100 mt-1 pt-2 px-2 space-y-2">
+              <div>
+                <label class="block text-[10px] uppercase text-ink-500 font-medium mb-1">From</label>
+                <input type="date" value="2026-04-01" class="w-full text-xs border border-gray-200 rounded px-2 py-1" />
+              </div>
+              <div>
+                <label class="block text-[10px] uppercase text-ink-500 font-medium mb-1">To</label>
+                <input type="date" value="2026-04-22" class="w-full text-xs border border-gray-200 rounded px-2 py-1" />
+              </div>
+              <button onclick="selectTimeFilter('tf-calls', 'Apr 1 – Apr 22')" class="w-full text-xs bg-ink-900 text-white rounded px-2 py-1.5 hover:bg-ink-700">Apply</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Calls -->
+      <section>
+        <h3 class="text-sm font-semibold mb-3 text-ink-700">Calls</h3>
+        <div class="rounded-lg border border-gray-200 bg-white p-5">
+          <div class="flex items-center justify-between gap-6 mb-4">
+            <div class="flex items-baseline gap-6">
+              <div><div class="text-2xl font-semibold">12</div><div class="text-xs text-ink-500">Attempted</div></div>
+              <div><div class="text-2xl font-semibold text-emerald-600">7</div><div class="text-xs text-ink-500">Connected</div></div>
+              <div><div class="text-2xl font-semibold">58%</div><div class="text-xs text-ink-500">Connect rate</div></div>
+            </div>
+            <div class="flex-1 max-w-xs">
+              <div class="h-2 rounded-full overflow-hidden bg-gray-100 flex">
+                <div class="bg-emerald-500" style="width:58%"></div>
+                <div class="bg-rose-300" style="width:42%"></div>
+              </div>
+              <div class="flex justify-between text-[10px] text-ink-500 mt-1"><span>Connected</span><span>Missed</span></div>
+            </div>
+          </div>
+          <div class="border-t border-gray-100 -mx-5"></div>
+          <div class="divide-y divide-gray-100 -mx-5">
+            <div class="px-5 py-3 flex items-center gap-4 hover:bg-gray-50 cursor-pointer" onclick="openDetail('call')">
+              <div class="text-xs text-ink-500 w-20 shrink-0">Mon 11:04</div>
+              <div class="text-xs px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100 w-24 text-center">Connected</div>
+              <div class="flex-1 text-sm">Walked through billing discrepancy; agreed to credit $240 on next invoice.</div>
+              <div class="text-xs text-ink-500">6m 42s</div>
+              <span class="dot bg-amber-500" title="Concerned"></span>
+            </div>
+            <div class="px-5 py-3 flex items-center gap-4 hover:bg-gray-50 cursor-pointer" onclick="openDetail('call')">
+              <div class="text-xs text-ink-500 w-20 shrink-0">Mon 09:47</div>
+              <div class="text-xs px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-100 w-24 text-center">No answer</div>
+              <div class="flex-1 text-sm">Outbound · Aditi (Head of Ops) — voicemail left.</div>
+              <div class="text-xs text-ink-500">—</div>
+              <span class="dot bg-gray-300"></span>
+            </div>
+            <div class="px-5 py-3 flex items-center gap-4 hover:bg-gray-50 cursor-pointer" onclick="openDetail('call')">
+              <div class="text-xs text-ink-500 w-20 shrink-0">Tue 15:22</div>
+              <div class="text-xs px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100 w-24 text-center">Connected</div>
+              <div class="flex-1 text-sm">Quick check on inventory sync status; confirmed fix deployed yesterday.</div>
+              <div class="text-xs text-ink-500">3m 18s</div>
+              <span class="dot bg-emerald-500" title="Happy"></span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Meetings -->
+      <section class="mt-8">
+        <h3 class="text-sm font-semibold mb-3 text-ink-700">Meetings done</h3>
+        <div class="rounded-lg border border-gray-200 bg-white p-5">
+          <div class="flex items-baseline gap-6 mb-4">
+            <div><div class="text-2xl font-semibold">2</div><div class="text-xs text-ink-500">Completed</div></div>
+            <div><div class="text-2xl font-semibold">84m</div><div class="text-xs text-ink-500">Total time</div></div>
+          </div>
+          <div class="border-t border-gray-100 -mx-5"></div>
+          <div class="divide-y divide-gray-100 -mx-5">
+            <div class="px-5 py-3 flex items-center gap-4 hover:bg-gray-50 cursor-pointer" onclick="openDetail('meeting')">
+              <div class="text-xs text-ink-500 w-24 shrink-0">Mon · 2:00 PM</div>
+              <div class="flex-1">
+                <div class="text-sm font-medium">Monthly business review</div>
+                <div class="text-xs text-ink-500">Discussed Q1 GMV, unblocked multi-location inventory. Aditi raised pricing concern.</div>
+              </div>
+              <div class="flex -space-x-1">
+                <div class="w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 grid place-items-center text-[9px] font-semibold ring-2 ring-white">PM</div>
+                <div class="w-5 h-5 rounded-full bg-emerald-100 text-emerald-700 grid place-items-center text-[9px] font-semibold ring-2 ring-white">AT</div>
+              </div>
+              <span class="dot bg-amber-500"></span>
+            </div>
+            <div class="px-5 py-3 flex items-center gap-4 hover:bg-gray-50 cursor-pointer" onclick="openDetail('meeting')">
+              <div class="text-xs text-ink-500 w-24 shrink-0">Thu · 11:00 AM</div>
+              <div class="flex-1">
+                <div class="text-sm font-medium">Integration health check</div>
+                <div class="text-xs text-ink-500">Walkthrough of new shipping rule engine. Confirmed deployment path.</div>
+              </div>
+              <div class="flex -space-x-1">
+                <div class="w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 grid place-items-center text-[9px] font-semibold ring-2 ring-white">PM</div>
+                <div class="w-5 h-5 rounded-full bg-emerald-100 text-emerald-700 grid place-items-center text-[9px] font-semibold ring-2 ring-white">AT</div>
+                <div class="w-5 h-5 rounded-full bg-amber-100 text-amber-700 grid place-items-center text-[9px] font-semibold ring-2 ring-white">RK</div>
+              </div>
+              <span class="dot bg-emerald-500"></span>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+    <div id="tab-whatsapp" class="tab-panel hidden">
+      <section class="rounded-lg border border-gray-200 bg-white p-5 mb-6">
+        <div class="flex items-start justify-between gap-6">
+          <div>
+            <div class="flex items-center gap-2">
+              <h2 class="text-base font-semibold">Artisan Threads — Core group</h2>
+              <span class="text-xs text-ink-500">· 5 members</span>
+            </div>
+            <div class="text-xs text-ink-500 mt-0.5">Last activity 2 hours ago</div>
+          </div>
+          <span class="text-xs px-2 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-100 flex items-center gap-1.5 font-medium">
+            <span class="dot bg-amber-500"></span> Concerned
+          </span>
+        </div>
+
+        <div class="grid grid-cols-3 gap-4 mt-5">
+          <div class="col-span-2">
+            <div class="text-[11px] uppercase tracking-wide text-ink-500 font-medium mb-2">AI state summary</div>
+            <p class="text-sm text-ink-700 leading-relaxed">
+              Merchant raised a billing discrepancy on Monday — a duplicate charge of <b>$240</b> on the March invoice. Priya acknowledged on the call and committed to a credit, but Aditi has pinged twice since asking for written confirmation with no response. Tone has shifted from neutral to frustrated across the last 24 hours; merchant has also begun referencing a competing platform in passing. <b>Recommend written follow-up within the day.</b>
+            </p>
+          </div>
+          <div>
+            <div class="text-[11px] uppercase tracking-wide text-ink-500 font-medium mb-2">Open issue</div>
+            <div class="rounded-md border border-rose-100 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+              Unresolved: <b>March billing credit</b> — awaiting written confirmation.
+            </div>
+            <div class="text-[11px] uppercase tracking-wide text-ink-500 font-medium mt-4 mb-2">Topics this week</div>
+            <div class="flex flex-wrap gap-1.5">
+              <span class="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-ink-700">pricing</span>
+              <span class="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-ink-700">billing</span>
+              <span class="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-ink-700">bulk import</span>
+              <span class="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-ink-700">competitor</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Time filter -->
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-base font-semibold">Conversations</h2>
+        <div id="tf-whatsapp" class="time-filter relative" data-open="false">
+          <button onclick="toggleTimeFilter('tf-whatsapp')" class="inline-flex items-center gap-2 px-3 py-1.5 text-xs border border-gray-200 rounded-lg bg-white hover:border-gray-300">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+            <span class="time-filter-label font-medium">Last 7 days</span>
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+          </button>
+          <div class="time-filter-menu absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg w-64 p-1 z-10">
+            <button onclick="selectTimeFilter('tf-whatsapp', 'Today')" class="w-full text-left px-3 py-1.5 text-xs rounded hover:bg-gray-100">Today</button>
+            <button onclick="selectTimeFilter('tf-whatsapp', 'Yesterday')" class="w-full text-left px-3 py-1.5 text-xs rounded hover:bg-gray-100">Yesterday</button>
+            <button onclick="selectTimeFilter('tf-whatsapp', 'Last 7 days')" class="w-full text-left px-3 py-1.5 text-xs rounded hover:bg-gray-100 font-medium bg-gray-50">Last 7 days</button>
+            <button onclick="selectTimeFilter('tf-whatsapp', 'Last 30 days')" class="w-full text-left px-3 py-1.5 text-xs rounded hover:bg-gray-100">Last 30 days</button>
+            <button onclick="selectTimeFilter('tf-whatsapp', 'This month')" class="w-full text-left px-3 py-1.5 text-xs rounded hover:bg-gray-100">This month</button>
+            <button onclick="selectTimeFilter('tf-whatsapp', 'This quarter')" class="w-full text-left px-3 py-1.5 text-xs rounded hover:bg-gray-100">This quarter</button>
+            <div class="h-px bg-gray-100 my-1"></div>
+            <button onclick="showCustomRange('tf-whatsapp')" class="w-full text-left px-3 py-1.5 text-xs rounded hover:bg-gray-100 flex items-center justify-between">
+              <span>Custom range</span>
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+            </button>
+            <div class="time-filter-custom hidden border-t border-gray-100 mt-1 pt-2 px-2 space-y-2">
+              <div>
+                <label class="block text-[10px] uppercase text-ink-500 font-medium mb-1">From</label>
+                <input type="date" value="2026-04-01" class="w-full text-xs border border-gray-200 rounded px-2 py-1" />
+              </div>
+              <div>
+                <label class="block text-[10px] uppercase text-ink-500 font-medium mb-1">To</label>
+                <input type="date" value="2026-04-22" class="w-full text-xs border border-gray-200 rounded px-2 py-1" />
+              </div>
+              <button onclick="selectTimeFilter('tf-whatsapp', 'Apr 1 – Apr 22')" class="w-full text-xs bg-ink-900 text-white rounded px-2 py-1.5 hover:bg-ink-700">Apply</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="text-xs text-ink-500 mb-3">4 conversations</div>
+
+      <div class="rounded-lg border border-gray-200 bg-white divide-y divide-gray-100">
+        <div class="p-4 hover:bg-gray-50 cursor-pointer" onclick="openDetail('whatsapp')">
+          <div class="flex items-start justify-between gap-4">
+            <div class="flex-1">
+              <div class="flex items-center gap-2">
+                <div class="text-sm font-medium">Billing discrepancy on March invoice</div>
+                <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-100">Unresolved</span>
+                <span class="dot bg-amber-500" title="Concerned"></span>
+              </div>
+              <div class="text-xs text-ink-500 mt-1">Mon 10:24 AM — Tue 2:15 PM · 18 messages</div>
+              <div class="text-sm text-ink-700 mt-2">Merchant flagged a duplicate $240 charge. Priya acknowledged; credit confirmation still pending in writing.</div>
+              <div class="flex flex-wrap gap-1.5 mt-2">
+                <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-ink-700">billing</span>
+                <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-ink-700">pricing</span>
+              </div>
+            </div>
+            <div class="flex -space-x-1 shrink-0">
+              <div class="w-6 h-6 rounded-full bg-emerald-100 text-emerald-700 grid place-items-center text-[10px] font-semibold ring-2 ring-white">AT</div>
+              <div class="w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 grid place-items-center text-[10px] font-semibold ring-2 ring-white">PM</div>
+            </div>
+          </div>
+        </div>
+        <div class="p-4 hover:bg-gray-50 cursor-pointer" onclick="openDetail('whatsapp')">
+          <div class="flex items-start justify-between gap-4">
+            <div class="flex-1">
+              <div class="flex items-center gap-2">
+                <div class="text-sm font-medium">Bulk import feature request</div>
+                <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-ink-700 border border-gray-200">Informational</span>
+                <span class="dot bg-emerald-500"></span>
+              </div>
+              <div class="text-xs text-ink-500 mt-1">Tue 9:11 AM · 6 messages</div>
+              <div class="text-sm text-ink-700 mt-2">Aditi asked about CSV bulk-import timelines for product variants. Priya confirmed it's on Q2 roadmap.</div>
+              <div class="flex flex-wrap gap-1.5 mt-2">
+                <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-ink-700">bulk import</span>
+                <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-ink-700">roadmap</span>
+              </div>
+            </div>
+            <div class="flex -space-x-1 shrink-0">
+              <div class="w-6 h-6 rounded-full bg-emerald-100 text-emerald-700 grid place-items-center text-[10px] font-semibold ring-2 ring-white">AT</div>
+              <div class="w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 grid place-items-center text-[10px] font-semibold ring-2 ring-white">PM</div>
+            </div>
+          </div>
+        </div>
+        <div class="p-4 hover:bg-gray-50 cursor-pointer" onclick="openDetail('whatsapp')">
+          <div class="flex items-start justify-between gap-4">
+            <div class="flex-1">
+              <div class="flex items-center gap-2">
+                <div class="text-sm font-medium">Shipping integration confirmation</div>
+                <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100">Resolved</span>
+                <span class="dot bg-emerald-500"></span>
+              </div>
+              <div class="text-xs text-ink-500 mt-1">Wed 4:02 PM · 9 messages</div>
+              <div class="text-sm text-ink-700 mt-2">Rahul confirmed the new Shiprocket integration is live and orders are flowing correctly.</div>
+              <div class="flex flex-wrap gap-1.5 mt-2">
+                <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-ink-700">shipping</span>
+                <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-ink-700">integration</span>
+              </div>
+            </div>
+            <div class="flex -space-x-1 shrink-0">
+              <div class="w-6 h-6 rounded-full bg-amber-100 text-amber-700 grid place-items-center text-[10px] font-semibold ring-2 ring-white">RK</div>
+              <div class="w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 grid place-items-center text-[10px] font-semibold ring-2 ring-white">PM</div>
+            </div>
+          </div>
+        </div>
+        <div class="p-4 hover:bg-gray-50 cursor-pointer" onclick="openDetail('whatsapp')">
+          <div class="flex items-start justify-between gap-4">
+            <div class="flex-1">
+              <div class="flex items-center gap-2">
+                <div class="text-sm font-medium">Competitor mention — Nurv</div>
+                <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-100">Attention</span>
+                <span class="dot bg-amber-500"></span>
+              </div>
+              <div class="text-xs text-ink-500 mt-1">Tue 7:48 PM · 4 messages</div>
+              <div class="text-sm text-ink-700 mt-2">Aditi casually referenced that a peer brand recently moved to Nurv. No direct comparison asked. Flagging as signal.</div>
+              <div class="flex flex-wrap gap-1.5 mt-2">
+                <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-ink-700">competitor</span>
+                <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-ink-700">retention risk</span>
+              </div>
+            </div>
+            <div class="flex -space-x-1 shrink-0">
+              <div class="w-6 h-6 rounded-full bg-emerald-100 text-emerald-700 grid place-items-center text-[10px] font-semibold ring-2 ring-white">AT</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div id="tab-issues" class="tab-panel hidden">
+      <div class="flex items-center justify-between mb-4">
+        <div class="flex items-center gap-3">
+          <h2 class="text-base font-semibold">Issues</h2>
+          <div class="flex items-center gap-1 p-1 bg-gray-100 rounded-lg">
+            <button class="px-3 py-1 text-xs rounded-md bg-white text-ink-900 shadow-sm font-medium">Open</button>
+            <button class="px-3 py-1 text-xs rounded-md text-ink-500">All</button>
+            <button class="px-3 py-1 text-xs rounded-md text-ink-500">Resolved</button>
+          </div>
+        </div>
+        <button onclick="openJiraModal()" class="text-xs px-3 py-1.5 rounded-lg bg-ink-900 text-white hover:bg-ink-700 inline-flex items-center gap-1.5">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+          Log new issue
+        </button>
+      </div>
+
+      <div class="rounded-lg border border-gray-200 bg-white divide-y divide-gray-100">
+        <div class="p-4 hover:bg-gray-50 cursor-pointer">
+          <div class="flex items-start justify-between gap-4">
+            <div class="flex-1">
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[#0052CC]/10 text-[#0052CC] font-semibold">CS-142</span>
+                <span class="text-xs px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-100 font-medium">High</span>
+                <div class="text-sm font-medium">March billing credit — written confirmation pending</div>
+              </div>
+              <div class="text-xs text-ink-500 mt-1">Opened Apr 20 · Source: WhatsApp · Owner: Priya Mehra</div>
+              <div class="text-sm text-ink-700 mt-2">Merchant expecting written confirmation of $240 credit. Verbally agreed on Mon call. Three pings since with no response.</div>
+            </div>
+            <span class="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-ink-700">Open</span>
+          </div>
+        </div>
+        <div class="p-4 hover:bg-gray-50 cursor-pointer">
+          <div class="flex items-start justify-between gap-4">
+            <div class="flex-1">
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[#0052CC]/10 text-[#0052CC] font-semibold">CS-138</span>
+                <span class="text-xs px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-100 font-medium">Med</span>
+                <div class="text-sm font-medium">Bulk-import feature request</div>
+              </div>
+              <div class="text-xs text-ink-500 mt-1">Opened Apr 16 · Source: WhatsApp · Owner: Priya Mehra</div>
+              <div class="text-sm text-ink-700 mt-2">Aditi asked for CSV bulk import of variants. On Q2 roadmap; PM to confirm scope in Apr 28 sync.</div>
+            </div>
+            <span class="text-xs px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-100">In progress</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div id="tab-notes" class="tab-panel hidden">
+      <div class="rounded-lg border border-gray-200 bg-white p-4 mb-6">
+        <textarea rows="2" placeholder="Add a note or follow-up..." class="w-full text-sm resize-none focus:outline-none placeholder:text-ink-300"></textarea>
+        <div class="flex items-center justify-between mt-2">
+          <label class="text-xs text-ink-500 flex items-center gap-2">
+            <input type="checkbox" class="rounded" /> This is a follow-up
+          </label>
+          <button class="text-xs px-3 py-1.5 rounded-lg bg-ink-900 text-white hover:bg-ink-700">Post note</button>
+        </div>
+      </div>
+      <div class="space-y-3">
+        <div class="rounded-lg border border-gray-200 bg-white p-4">
+          <div class="flex items-start gap-3">
+            <div class="w-7 h-7 rounded-full bg-indigo-100 text-indigo-700 grid place-items-center text-xs font-semibold shrink-0">PM</div>
+            <div class="flex-1">
+              <div class="flex items-center gap-2 flex-wrap">
+                <div class="text-sm font-medium">Priya Mehra</div>
+                <div class="text-xs text-ink-500">Apr 22 · 9:40 AM</div>
+                <span class="text-[10px] px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-100 font-medium">Follow-up · due today</span>
+              </div>
+              <p class="text-sm text-ink-700 mt-1.5">Need to send billing credit confirmation email today. Aditi expecting it since Tuesday.</p>
+              <div class="text-xs text-ink-500 mt-2">Assigned to Priya Mehra</div>
+            </div>
+          </div>
+        </div>
+        <div class="rounded-lg border border-gray-200 bg-white p-4">
+          <div class="flex items-start gap-3">
+            <div class="w-7 h-7 rounded-full bg-indigo-100 text-indigo-700 grid place-items-center text-xs font-semibold shrink-0">PM</div>
+            <div class="flex-1">
+              <div class="flex items-center gap-2">
+                <div class="text-sm font-medium">Priya Mehra</div>
+                <div class="text-xs text-ink-500">Apr 19 · 5:22 PM</div>
+              </div>
+              <p class="text-sm text-ink-700 mt-1.5">Aditi mentioned Nurv during side chat on Tuesday. Not an immediate threat, but want to surface in the renewal conversation in May. Possibly request competitive positioning from marketing ahead of it.</p>
+            </div>
+          </div>
+        </div>
+        <div class="rounded-lg border border-gray-200 bg-white p-4">
+          <div class="flex items-start gap-3">
+            <div class="w-7 h-7 rounded-full bg-amber-100 text-amber-700 grid place-items-center text-xs font-semibold shrink-0">RK</div>
+            <div class="flex-1">
+              <div class="flex items-center gap-2">
+                <div class="text-sm font-medium">Rahul Kapoor</div>
+                <div class="text-xs text-ink-500">Apr 15 · 11:08 AM</div>
+              </div>
+              <p class="text-sm text-ink-700 mt-1.5">Shipping integration debug call went well. Rahul confirmed the fix will deploy by EOW. Will re-check on Monday.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+</section>
+
+<!-- DNC Modal -->
+<div id="dnc-modal" class="fixed inset-0 z-30 hidden items-center justify-center bg-ink-900/40 p-6">
+  <div class="bg-white rounded-xl border border-gray-200 w-full max-w-md p-6">
+    <h3 class="text-base font-semibold">Change outreach status</h3>
+    <p class="text-sm text-ink-500 mt-1">Mark this merchant as Do Not Contact.</p>
+    <label class="block text-xs font-medium text-ink-700 mt-5 mb-1.5">Reason</label>
+    <select class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2">
+      <option>Churned</option><option>Acquisition</option><option>Legal hold</option><option>Customer request</option><option>Other</option>
+    </select>
+    <label class="block text-xs font-medium text-ink-700 mt-4 mb-1.5">Context note (optional)</label>
+    <textarea rows="3" class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2" placeholder="Any context the team should know..."></textarea>
+    <label class="block text-xs font-medium text-ink-700 mt-4 mb-1.5">Revisit on (optional)</label>
+    <input type="date" class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2" />
+    <div class="flex justify-end gap-2 mt-6">
+      <button onclick="closeDNCModal()" class="px-3 py-2 text-sm text-ink-700 hover:bg-gray-100 rounded-lg">Cancel</button>
+      <button onclick="closeDNCModal()" class="px-3 py-2 text-sm bg-rose-600 text-white rounded-lg hover:bg-rose-700">Mark as Do Not Contact</button>
+    </div>
+  </div>
+</div>
+
+<!-- Jira Ticket Modal -->
+<div id="jira-modal" class="fixed inset-0 z-30 hidden items-center justify-center bg-ink-900/40 p-6">
+  <div class="bg-white rounded-xl border border-gray-200 w-full max-w-lg max-h-[90vh] overflow-y-auto">
+    <div class="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+      <div class="flex items-center gap-2">
+        <div class="w-6 h-6 rounded bg-[#0052CC] text-white grid place-items-center text-[10px] font-bold">J</div>
+        <h3 class="text-base font-semibold">Create Jira ticket</h3>
+      </div>
+      <button onclick="closeJiraModal()" class="text-ink-500 hover:text-ink-900">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <div class="p-6 space-y-4">
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs font-medium text-ink-700 mb-1.5">Project</label>
+          <select class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2">
+            <option>CS-CRM · Customer Success</option>
+            <option>SUPPORT · Support Escalations</option>
+            <option>PROD · Product Feedback</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-ink-700 mb-1.5">Issue type</label>
+          <select class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2">
+            <option>Task</option><option>Bug</option><option>Story</option><option>Improvement</option>
+          </select>
+        </div>
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-ink-700 mb-1.5">Summary</label>
+        <input type="text" placeholder="Short title for the ticket" class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2" />
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-ink-700 mb-1.5">Description</label>
+        <textarea rows="4" placeholder="Context, reproduction steps, expected outcome..." class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2"></textarea>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs font-medium text-ink-700 mb-1.5">Priority</label>
+          <select class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2">
+            <option>P2 · Medium</option><option>P0 · Blocker</option><option>P1 · High</option><option>P3 · Low</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-ink-700 mb-1.5">Assignee</label>
+          <select class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2">
+            <option>Priya Mehra (me)</option><option>Rahul Kapoor</option><option>Unassigned</option>
+          </select>
+        </div>
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-ink-700 mb-1.5">Labels</label>
+        <div class="flex flex-wrap gap-1.5 px-3 py-2 border border-gray-200 rounded-lg min-h-[38px]">
+          <span class="text-xs px-2 py-0.5 rounded-md bg-gray-100 text-ink-700 flex items-center gap-1">artisan-threads <button class="text-ink-500 hover:text-ink-900">×</button></span>
+          <span class="text-xs px-2 py-0.5 rounded-md bg-gray-100 text-ink-700 flex items-center gap-1">billing <button class="text-ink-500 hover:text-ink-900">×</button></span>
+          <input type="text" placeholder="Add label..." class="text-xs flex-1 min-w-[80px] focus:outline-none" />
+        </div>
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-ink-700 mb-1.5">Link to source (optional)</label>
+        <select class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2">
+          <option>— None —</option>
+          <option>Call · Mon 11:04 — Billing discrepancy walkthrough</option>
+          <option>WhatsApp · Mon–Tue — Billing discrepancy on March invoice</option>
+          <option>Meeting · Mon 2:00 PM — Monthly business review</option>
+        </select>
+      </div>
+      <div class="rounded-md bg-blue-50 border border-blue-100 px-3 py-2 text-xs text-blue-800 flex items-start gap-2">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mt-0.5 shrink-0"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
+        <div>Merchant context (<b>artisanthreads.myshopify.com</b>, AM: Priya Mehra, health: At risk) will be auto-attached to the ticket.</div>
+      </div>
+    </div>
+    <div class="px-6 py-4 border-t border-gray-200 flex items-center justify-between bg-gray-50/50">
+      <div class="text-xs text-ink-500">Creates in <b>Jira</b> and mirrors as an issue here.</div>
+      <div class="flex gap-2">
+        <button onclick="closeJiraModal()" class="px-3 py-2 text-sm text-ink-700 hover:bg-gray-100 rounded-lg">Cancel</button>
+        <button onclick="closeJiraModal()" class="px-3 py-2 text-sm bg-[#0052CC] text-white rounded-lg hover:bg-[#0747A6] flex items-center gap-1.5">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12l5 5L20 7"/></svg>
+          Create ticket
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Interaction Detail slide-over -->
+<div id="detail-overlay" class="fixed inset-0 z-30 hidden bg-ink-900/30"></div>
+<aside id="detail-slideover" class="fixed top-0 right-0 bottom-0 z-40 w-full max-w-[640px] bg-white border-l border-gray-200 shadow-xl overflow-y-auto">
+  <!-- Views are injected below; one active at a time -->
+  <div id="view-call" class="detail-view">
+    <div class="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-start justify-between gap-4 z-10">
+      <div class="min-w-0">
+        <div class="flex items-center gap-2 text-xs text-ink-500">
+          <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gray-100 font-medium text-ink-700">Call</span>
+          <span>Mon · 11:04 AM · 6m 42s · Priya → Aditi</span>
+        </div>
+        <h2 class="text-base font-semibold mt-1">Billing discrepancy walkthrough</h2>
+      </div>
+      <button onclick="closeDetail()" class="text-ink-500 hover:text-ink-900 p-1">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <div class="p-6 space-y-6">
+      <!-- mp3 player -->
+      <div class="rounded-lg border border-gray-200 bg-indigo-50/40 p-4">
+        <div class="flex items-center gap-3">
+          <button class="w-10 h-10 rounded-full bg-indigo-600 text-white grid place-items-center hover:bg-indigo-700">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M6 4l14 8-14 8z"/></svg>
+          </button>
+          <div class="flex-1">
+            <div class="flex items-end h-10">
+              <span class="waveform-bar" style="height:8px"></span><span class="waveform-bar" style="height:12px"></span><span class="waveform-bar" style="height:20px"></span><span class="waveform-bar" style="height:14px"></span><span class="waveform-bar" style="height:24px"></span><span class="waveform-bar" style="height:18px"></span><span class="waveform-bar" style="height:10px"></span><span class="waveform-bar" style="height:16px"></span><span class="waveform-bar" style="height:22px"></span><span class="waveform-bar" style="height:28px"></span><span class="waveform-bar" style="height:14px"></span><span class="waveform-bar" style="height:20px"></span><span class="waveform-bar" style="height:16px"></span><span class="waveform-bar" style="height:24px"></span><span class="waveform-bar" style="height:10px"></span><span class="waveform-bar" style="height:18px"></span><span class="waveform-bar" style="height:12px"></span><span class="waveform-bar" style="height:22px"></span><span class="waveform-bar" style="height:16px"></span><span class="waveform-bar" style="height:26px"></span><span class="waveform-bar" style="height:14px"></span><span class="waveform-bar" style="height:18px"></span><span class="waveform-bar" style="height:22px"></span><span class="waveform-bar" style="height:14px"></span><span class="waveform-bar" style="height:8px"></span><span class="waveform-bar" style="height:12px"></span><span class="waveform-bar" style="height:18px"></span><span class="waveform-bar" style="height:22px"></span><span class="waveform-bar" style="height:16px"></span><span class="waveform-bar" style="height:10px"></span><span class="waveform-bar" style="height:14px"></span><span class="waveform-bar" style="height:20px"></span><span class="waveform-bar" style="height:24px"></span><span class="waveform-bar" style="height:18px"></span><span class="waveform-bar" style="height:12px"></span><span class="waveform-bar" style="height:16px"></span><span class="waveform-bar" style="height:20px"></span><span class="waveform-bar" style="height:14px"></span><span class="waveform-bar" style="height:10px"></span><span class="waveform-bar" style="height:18px"></span>
+            </div>
+            <div class="flex items-center justify-between text-[11px] text-ink-500 mt-1">
+              <span>0:00</span><span>6:42</span>
+            </div>
+          </div>
+          <select class="text-xs border border-gray-200 rounded-md px-2 py-1 bg-white"><option>1x</option><option>1.25x</option><option>1.5x</option><option>2x</option></select>
+        </div>
+        <div class="text-[11px] text-ink-500 mt-2">mp3 recording · 6m 42s</div>
+      </div>
+
+      <section>
+        <div class="text-xs font-medium text-ink-500 uppercase tracking-wide mb-2">Summary</div>
+        <p class="text-sm text-ink-700 leading-relaxed">Priya walked Aditi through the duplicate $240 charge on the March invoice, confirming it was a transaction-fee duplication tied to a refund-retry bug. Aditi expressed visible frustration that the same issue had occurred in a prior quarter and pressed for written confirmation before closing the call. Priya committed to sending a written credit confirmation within the hour and to a root-cause summary by end of week. Call ended on a cooperative but cautious note; Aditi also made a passing reference to a competing platform (Nurv) reconciling billing faster, which is worth noting for the renewal conversation.</p>
+      </section>
+
+      <section>
+        <div class="rounded-lg border border-gray-200 bg-white p-4">
+          <div class="flex items-center justify-between mb-3">
+            <div class="text-xs font-medium text-ink-500 uppercase tracking-wide">Sentiment</div>
+            <span class="text-xs px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-100 font-medium flex items-center gap-1.5"><span class="dot bg-amber-500"></span>Concerned</span>
+          </div>
+          <div class="text-[11px] text-ink-500 mb-1">Trajectory</div>
+          <svg viewBox="0 0 200 40" class="w-full h-10">
+            <polyline fill="none" stroke="#d97706" stroke-width="2" points="0,20 33,24 67,28 100,32 133,28 167,24 200,20" />
+            <circle cx="0" cy="20" r="2.5" fill="#d97706" /><circle cx="33" cy="24" r="2.5" fill="#d97706" /><circle cx="67" cy="28" r="2.5" fill="#d97706" /><circle cx="100" cy="32" r="2.5" fill="#d97706" /><circle cx="133" cy="28" r="2.5" fill="#d97706" /><circle cx="167" cy="24" r="2.5" fill="#d97706" /><circle cx="200" cy="20" r="2.5" fill="#d97706" />
+          </svg>
+          <div class="text-[11px] text-ink-500 mt-3 mb-2">Key moments</div>
+          <ul class="space-y-2">
+            <li class="text-xs text-ink-700 flex gap-2"><span class="text-ink-500 font-mono shrink-0">00:34</span><span>"We've been chasing this for a week now — it's getting frustrating."</span></li>
+            <li class="text-xs text-ink-700 flex gap-2"><span class="text-ink-500 font-mono shrink-0">02:41</span><span>"I need this in writing. The last verbal promise took three weeks to land."</span></li>
+            <li class="text-xs text-ink-700 flex gap-2"><span class="text-ink-500 font-mono shrink-0">05:18</span><span>"Nurv apparently reconciles within 24h — just saying."</span></li>
+          </ul>
+        </div>
+      </section>
+
+      <section>
+        <div class="text-xs font-medium text-ink-500 uppercase tracking-wide mb-2">Topics</div>
+        <div class="flex flex-wrap gap-1.5">
+          <span class="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-ink-700">billing</span>
+          <span class="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-ink-700">pricing</span>
+          <span class="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-ink-700">competitor mention</span>
+          <span class="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-ink-700">refund retry bug</span>
+        </div>
+      </section>
+
+      <section>
+        <div class="text-xs font-medium text-ink-500 uppercase tracking-wide mb-2">Action items</div>
+        <ul class="space-y-2">
+          <li class="flex items-start gap-2 text-sm"><input type="checkbox" class="mt-1 rounded"/><div class="flex-1"><div>Send written credit confirmation to Aditi</div><div class="text-[11px] text-ink-500 mt-0.5">Priya · Today</div></div></li>
+          <li class="flex items-start gap-2 text-sm"><input type="checkbox" class="mt-1 rounded"/><div class="flex-1"><div>Share root-cause summary of refund-retry bug</div><div class="text-[11px] text-ink-500 mt-0.5">Priya + Eng · Fri Apr 25</div></div></li>
+          <li class="flex items-start gap-2 text-sm"><input type="checkbox" checked class="mt-1 rounded"/><div class="flex-1"><div class="line-through text-ink-500">Flag competitor mention in CRM</div><div class="text-[11px] text-ink-500 mt-0.5">Priya · Done</div></div></li>
+        </ul>
+      </section>
+
+      <section>
+        <div class="text-xs font-medium text-ink-500 uppercase tracking-wide mb-2">Transcript</div>
+        <details class="rounded-lg border border-gray-200 bg-white">
+          <summary class="px-4 py-3 flex items-center justify-between text-sm font-medium">
+            <span>Show transcript</span><span class="text-xs text-ink-500">Click a line to seek</span>
+          </summary>
+          <div class="px-4 pb-4 space-y-2 text-sm">
+            <div class="flex gap-3 p-2 rounded hover:bg-gray-50 cursor-pointer"><span class="text-xs text-ink-500 font-mono w-12 shrink-0">00:12</span><span><b>Priya:</b> Hi Aditi, thanks for picking up. Wanted to walk you through what we found on the March invoice.</span></div>
+            <div class="flex gap-3 p-2 rounded hover:bg-gray-50 cursor-pointer"><span class="text-xs text-ink-500 font-mono w-12 shrink-0">00:34</span><span><b>Aditi:</b> Please do. We've been chasing this for a week now — it's getting frustrating.</span></div>
+            <div class="flex gap-3 p-2 rounded hover:bg-gray-50 cursor-pointer"><span class="text-xs text-ink-500 font-mono w-12 shrink-0">01:08</span><span><b>Priya:</b> Completely fair. You were double-charged $240 for the transaction fee on Mar 14. We'll credit that on your next invoice.</span></div>
+            <div class="flex gap-3 p-2 rounded hover:bg-gray-50 cursor-pointer"><span class="text-xs text-ink-500 font-mono w-12 shrink-0">02:41</span><span><b>Aditi:</b> I need this in writing. The last verbal promise took three weeks to land.</span></div>
+            <div class="flex gap-3 p-2 rounded hover:bg-gray-50 cursor-pointer"><span class="text-xs text-ink-500 font-mono w-12 shrink-0">03:15</span><span><b>Priya:</b> I'll send written confirmation within the hour.</span></div>
+          </div>
+        </details>
+      </section>
+
+      <section>
+        <div class="text-xs font-medium text-ink-500 uppercase tracking-wide mb-2">Related</div>
+        <div class="rounded-lg border border-gray-200 bg-white divide-y divide-gray-100">
+          <div class="p-3 hover:bg-gray-50 cursor-pointer flex items-center gap-3" onclick="openDetail('whatsapp')">
+            <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-ink-700 font-medium">WhatsApp</span>
+            <div class="flex-1 text-sm">Billing discrepancy on March invoice</div>
+            <div class="text-xs text-ink-500">Mon–Tue</div>
+          </div>
+          <div class="p-3 hover:bg-gray-50 cursor-pointer flex items-center gap-3" onclick="openDetail('meeting')">
+            <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-ink-700 font-medium">Meeting</span>
+            <div class="flex-1 text-sm">Monthly business review</div>
+            <div class="text-xs text-ink-500">2 weeks ago</div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+  <div id="view-meeting" class="detail-view">
+    <div class="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-start justify-between gap-4 z-10">
+      <div class="min-w-0">
+        <div class="flex items-center gap-2 text-xs text-ink-500">
+          <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gray-100 font-medium text-ink-700">Meeting</span>
+          <span>Mon · 2:00 PM · 42m · Priya, Aditi</span>
+        </div>
+        <h2 class="text-base font-semibold mt-1">Monthly business review</h2>
+      </div>
+      <button onclick="closeDetail()" class="text-ink-500 hover:text-ink-900 p-1">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <div class="p-6 space-y-6">
+      <!-- mp4 player -->
+      <div class="rounded-lg border border-gray-200 bg-ink-900 overflow-hidden">
+        <div class="aspect-video bg-gradient-to-br from-ink-700 to-ink-900 flex items-center justify-center relative">
+          <button class="w-14 h-14 rounded-full bg-white/90 text-ink-900 grid place-items-center hover:bg-white">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M6 4l14 8-14 8z"/></svg>
+          </button>
+          <div class="absolute bottom-0 left-0 right-0 px-4 py-2 bg-gradient-to-t from-black/60 flex items-center gap-3 text-white text-[11px]">
+            <div class="flex-1 h-1 bg-white/30 rounded-full"><div class="h-full w-1/3 bg-white rounded-full"></div></div>
+            <span>14:22 / 42:10</span>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3h7v7M21 21h-7v-7M3 21l7-7M21 3l-7 7"/></svg>
+          </div>
+        </div>
+        <div class="px-4 py-2 text-[11px] text-white/70 bg-ink-900">Fireflies mp4 recording · 42m 10s</div>
+      </div>
+
+      <section>
+        <div class="text-xs font-medium text-ink-500 uppercase tracking-wide mb-2">Summary</div>
+        <p class="text-sm text-ink-700 leading-relaxed">Covered Q1 performance (GMV up 14% QoQ, AOV flat), reviewed the multi-location inventory rollout (now at 3 of 5 warehouses, on track for end-April), and discussed Q2 priorities. Aditi raised a concern about transaction-fee pricing being opaque compared to peers and referenced benchmarks she'd received from a consultant. Priya committed to following up with a tiered-pricing proposal ahead of the renewal in June. Meeting ended with a light agenda for Q2: bulk import feature, shipping integration stability, and the pricing conversation.</p>
+      </section>
+
+      <section>
+        <div class="rounded-lg border border-gray-200 bg-white p-4">
+          <div class="flex items-center justify-between mb-3">
+            <div class="text-xs font-medium text-ink-500 uppercase tracking-wide">Sentiment</div>
+            <span class="text-xs px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-100 font-medium flex items-center gap-1.5"><span class="dot bg-amber-500"></span>Neutral → Concerned</span>
+          </div>
+          <div class="text-[11px] text-ink-500 mb-1">Trajectory</div>
+          <svg viewBox="0 0 200 40" class="w-full h-10">
+            <polyline fill="none" stroke="#d97706" stroke-width="2" points="0,16 33,16 67,20 100,24 133,28 167,24 200,20" />
+            <circle cx="0" cy="16" r="2.5" fill="#d97706" /><circle cx="33" cy="16" r="2.5" fill="#d97706" /><circle cx="67" cy="20" r="2.5" fill="#d97706" /><circle cx="100" cy="24" r="2.5" fill="#d97706" /><circle cx="133" cy="28" r="2.5" fill="#d97706" /><circle cx="167" cy="24" r="2.5" fill="#d97706" /><circle cx="200" cy="20" r="2.5" fill="#d97706" />
+          </svg>
+          <div class="text-[11px] text-ink-500 mt-3 mb-2">Key moments</div>
+          <ul class="space-y-2">
+            <li class="text-xs text-ink-700 flex gap-2"><span class="text-ink-500 font-mono shrink-0">12:04</span><span>"This is the third time we've raised pricing concerns in a QBR."</span></li>
+            <li class="text-xs text-ink-700 flex gap-2"><span class="text-ink-500 font-mono shrink-0">28:40</span><span>"I've seen the consultant benchmarks — we're above median."</span></li>
+          </ul>
+        </div>
+      </section>
+
+      <section>
+        <div class="text-xs font-medium text-ink-500 uppercase tracking-wide mb-2">Topics</div>
+        <div class="flex flex-wrap gap-1.5">
+          <span class="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-ink-700">Q1 performance</span>
+          <span class="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-ink-700">pricing</span>
+          <span class="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-ink-700">inventory</span>
+          <span class="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-ink-700">Q2 roadmap</span>
+        </div>
+      </section>
+
+      <section>
+        <div class="text-xs font-medium text-ink-500 uppercase tracking-wide mb-2">Action items</div>
+        <ul class="space-y-2">
+          <li class="flex items-start gap-2 text-sm"><input type="checkbox" class="mt-1 rounded"/><div class="flex-1"><div>Prepare tiered-pricing proposal for renewal</div><div class="text-[11px] text-ink-500 mt-0.5">Priya · May 30</div></div></li>
+          <li class="flex items-start gap-2 text-sm"><input type="checkbox" class="mt-1 rounded"/><div class="flex-1"><div>Confirm bulk-import scope with Product</div><div class="text-[11px] text-ink-500 mt-0.5">Priya · Apr 28</div></div></li>
+          <li class="flex items-start gap-2 text-sm"><input type="checkbox" checked class="mt-1 rounded"/><div class="flex-1"><div class="line-through text-ink-500">Share Q1 GMV dashboard link</div><div class="text-[11px] text-ink-500 mt-0.5">Priya · Done</div></div></li>
+        </ul>
+      </section>
+
+      <section>
+        <div class="text-xs font-medium text-ink-500 uppercase tracking-wide mb-2">Related</div>
+        <div class="rounded-lg border border-gray-200 bg-white divide-y divide-gray-100">
+          <div class="p-3 hover:bg-gray-50 cursor-pointer flex items-center gap-3" onclick="openDetail('call')">
+            <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-ink-700 font-medium">Call</span>
+            <div class="flex-1 text-sm">Billing discrepancy walkthrough</div>
+            <div class="text-xs text-ink-500">Today</div>
+          </div>
+          <div class="p-3 hover:bg-gray-50 cursor-pointer flex items-center gap-3" onclick="openDetail('whatsapp')">
+            <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-ink-700 font-medium">WhatsApp</span>
+            <div class="flex-1 text-sm">Competitor mention — Nurv</div>
+            <div class="text-xs text-ink-500">Tue</div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+  <div id="view-whatsapp" class="detail-view">
+    <div class="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-start justify-between gap-4 z-10">
+      <div class="min-w-0">
+        <div class="flex items-center gap-2 text-xs text-ink-500">
+          <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gray-100 font-medium text-ink-700">WhatsApp</span>
+          <span>Mon 10:24 AM — Tue 2:15 PM · 18 messages</span>
+        </div>
+        <h2 class="text-base font-semibold mt-1">Billing discrepancy on March invoice</h2>
+      </div>
+      <button onclick="closeDetail()" class="text-ink-500 hover:text-ink-900 p-1">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <div class="p-6 space-y-6">
+      <section>
+        <div class="text-xs font-medium text-ink-500 uppercase tracking-wide mb-2">Summary</div>
+        <p class="text-sm text-ink-700 leading-relaxed">Aditi flagged a duplicate $240 charge Monday morning and has pinged twice since with escalating impatience, including a passing comparison to a competing platform. Priya acknowledged the first message and committed to getting back by EOD Monday, but no written resolution has been sent. A follow-up call happened Mon 11:04 AM where verbal agreement was reached. Thread is currently <b>unresolved</b> pending written confirmation.</p>
+      </section>
+
+      <section>
+        <div class="rounded-lg border border-gray-200 bg-white p-4">
+          <div class="flex items-center justify-between mb-3">
+            <div class="text-xs font-medium text-ink-500 uppercase tracking-wide">Sentiment</div>
+            <span class="text-xs px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-100 font-medium flex items-center gap-1.5"><span class="dot bg-amber-500"></span>Concerned</span>
+          </div>
+          <div class="text-[11px] text-ink-500 mb-1">Trajectory</div>
+          <svg viewBox="0 0 200 40" class="w-full h-10">
+            <polyline fill="none" stroke="#d97706" stroke-width="2" points="0,20 33,20 67,24 100,28 133,32 167,32 200,28" />
+            <circle cx="0" cy="20" r="2.5" fill="#d97706" /><circle cx="33" cy="20" r="2.5" fill="#d97706" /><circle cx="67" cy="24" r="2.5" fill="#d97706" /><circle cx="100" cy="28" r="2.5" fill="#d97706" /><circle cx="133" cy="32" r="2.5" fill="#d97706" /><circle cx="167" cy="32" r="2.5" fill="#d97706" /><circle cx="200" cy="28" r="2.5" fill="#d97706" />
+          </svg>
+          <div class="text-[11px] text-ink-500 mt-3 mb-2">Key moments</div>
+          <ul class="space-y-2">
+            <li class="text-xs text-ink-700 flex gap-2"><span class="text-ink-500 font-mono shrink-0">Mon 10:24</span><span>"...just noticed a duplicate charge. Can someone look into it?"</span></li>
+            <li class="text-xs text-ink-700 flex gap-2"><span class="text-ink-500 font-mono shrink-0">Tue 9:05</span><span>"This is the second time this quarter."</span></li>
+            <li class="text-xs text-ink-700 flex gap-2"><span class="text-ink-500 font-mono shrink-0">Tue 2:15</span><span>"Folks at Nurv apparently reconcile within 24h."</span></li>
+          </ul>
+        </div>
+      </section>
+
+      <section>
+        <div class="text-xs font-medium text-ink-500 uppercase tracking-wide mb-2">Topics</div>
+        <div class="flex flex-wrap gap-1.5">
+          <span class="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-ink-700">billing</span>
+          <span class="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-ink-700">pricing</span>
+          <span class="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-ink-700">competitor mention</span>
+        </div>
+      </section>
+
+      <section>
+        <div class="text-xs font-medium text-ink-500 uppercase tracking-wide mb-2">Action items</div>
+        <ul class="space-y-2">
+          <li class="flex items-start gap-2 text-sm"><input type="checkbox" class="mt-1 rounded"/><div class="flex-1"><div>Send written credit confirmation</div><div class="text-[11px] text-ink-500 mt-0.5">Priya · Today</div></div></li>
+          <li class="flex items-start gap-2 text-sm"><input type="checkbox" class="mt-1 rounded"/><div class="flex-1"><div>Post resolution update to the WhatsApp group</div><div class="text-[11px] text-ink-500 mt-0.5">Priya · Today</div></div></li>
+        </ul>
+      </section>
+
+      <section>
+        <div class="text-xs font-medium text-ink-500 uppercase tracking-wide mb-2">Message thread</div>
+        <details class="rounded-lg border border-gray-200 bg-white">
+          <summary class="px-4 py-3 flex items-center justify-between text-sm font-medium">
+            <span>Show messages</span><span class="text-xs text-ink-500">18 messages</span>
+          </summary>
+          <div class="px-4 pb-4 space-y-3">
+            <div class="flex"><div class="max-w-[75%] bg-emerald-50 border border-emerald-100 text-sm rounded-2xl rounded-bl-sm px-3 py-2">
+              <div class="text-[11px] text-emerald-700 font-medium mb-0.5">Aditi · Mon 10:24 AM</div>
+              Hey team — just noticed a duplicate charge on the March invoice. Can someone look into it?
+            </div></div>
+            <div class="flex justify-end"><div class="max-w-[75%] bg-indigo-50 border border-indigo-100 text-sm rounded-2xl rounded-br-sm px-3 py-2">
+              <div class="text-[11px] text-indigo-700 font-medium mb-0.5">Priya · Mon 10:38 AM</div>
+              On it — will get back to you by EOD.
+            </div></div>
+            <div class="flex"><div class="max-w-[75%] bg-emerald-50 border border-emerald-100 text-sm rounded-2xl rounded-bl-sm px-3 py-2">
+              <div class="text-[11px] text-emerald-700 font-medium mb-0.5">Aditi · Tue 9:05 AM</div>
+              Any update? This is the second time this quarter.
+            </div></div>
+            <div class="flex"><div class="max-w-[75%] bg-emerald-50 border border-emerald-100 text-sm rounded-2xl rounded-bl-sm px-3 py-2">
+              <div class="text-[11px] text-emerald-700 font-medium mb-0.5">Aditi · Tue 2:15 PM</div>
+              Still waiting. Folks at Nurv apparently reconcile within 24h.
+            </div></div>
+          </div>
+        </details>
+      </section>
+
+      <section>
+        <div class="text-xs font-medium text-ink-500 uppercase tracking-wide mb-2">Related</div>
+        <div class="rounded-lg border border-gray-200 bg-white divide-y divide-gray-100">
+          <div class="p-3 hover:bg-gray-50 cursor-pointer flex items-center gap-3" onclick="openDetail('call')">
+            <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-ink-700 font-medium">Call</span>
+            <div class="flex-1 text-sm">Billing discrepancy walkthrough</div>
+            <div class="text-xs text-ink-500">Mon 11:04</div>
+          </div>
+          <div class="p-3 hover:bg-gray-50 cursor-pointer flex items-center gap-3" onclick="openDetail('meeting')">
+            <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-ink-700 font-medium">Meeting</span>
+            <div class="flex-1 text-sm">Monthly business review</div>
+            <div class="text-xs text-ink-500">2 weeks ago</div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+  <div id="view-meeting-prep" class="detail-view">
+    <div class="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-start justify-between gap-4 z-10">
+      <div class="min-w-0">
+        <div class="flex items-center gap-2 text-xs text-ink-500">
+          <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gray-100 font-medium text-ink-700">Meeting</span>
+          <span>Thu Apr 23 · 10:30 AM · 30m</span>
+        </div>
+        <h2 class="text-base font-semibold mt-1">QBR kickoff with Artisan Threads</h2>
+      </div>
+      <button onclick="closeDetail()" class="text-ink-500 hover:text-ink-900 p-1">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <div class="p-6 space-y-6">
+      <div class="rounded-lg border border-indigo-100 bg-indigo-50/60 px-4 py-3 text-sm text-indigo-800">
+        <b>Upcoming in 2 days</b> — prep view. Full summary, sentiment, and recording will appear here after the meeting.
+      </div>
+      <section>
+        <div class="text-xs font-medium text-ink-500 uppercase tracking-wide mb-2">Agenda</div>
+        <ul class="text-sm text-ink-700 list-disc pl-5 space-y-1">
+          <li>Q1 performance recap</li>
+          <li>Preview Q2 roadmap priorities</li>
+          <li>Address pricing concerns raised on WhatsApp</li>
+        </ul>
+      </section>
+      <section>
+        <div class="text-xs font-medium text-ink-500 uppercase tracking-wide mb-2">Attendees</div>
+        <div class="flex items-center gap-4 text-sm text-ink-700 flex-wrap">
+          <div class="flex items-center gap-2"><div class="w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 grid place-items-center text-[10px] font-semibold">PM</div>Priya Mehra</div>
+          <div class="flex items-center gap-2"><div class="w-6 h-6 rounded-full bg-emerald-100 text-emerald-700 grid place-items-center text-[10px] font-semibold">AT</div>Aditi Tomar</div>
+          <div class="flex items-center gap-2"><div class="w-6 h-6 rounded-full bg-amber-100 text-amber-700 grid place-items-center text-[10px] font-semibold">RK</div>Rahul Kapoor</div>
+        </div>
+      </section>
+      <section>
+        <div class="text-xs font-medium text-ink-500 uppercase tracking-wide mb-2">Open issues on deck</div>
+        <div class="rounded-lg border border-rose-100 bg-rose-50 p-3 text-xs text-rose-700">March billing credit — written confirmation still pending</div>
+      </section>
+      <section>
+        <div class="text-xs font-medium text-ink-500 uppercase tracking-wide mb-2">Prep notes</div>
+        <textarea rows="3" class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2" placeholder="Notes for yourself before the meeting..."></textarea>
+      </section>
+      <section>
+        <div class="text-xs font-medium text-ink-500 uppercase tracking-wide mb-2">Linked prior meetings</div>
+        <div class="rounded-lg border border-gray-200 bg-white divide-y divide-gray-100">
+          <div class="p-3 hover:bg-gray-50 cursor-pointer flex items-center gap-3" onclick="openDetail('meeting')">
+            <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-ink-700 font-medium">Meeting</span>
+            <div class="flex-1 text-sm">Monthly business review</div>
+            <div class="text-xs text-ink-500">2 weeks ago</div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+  <div id="view-call-prep" class="detail-view">
+    <div class="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-start justify-between gap-4 z-10">
+      <div class="min-w-0">
+        <div class="flex items-center gap-2 text-xs text-ink-500">
+          <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gray-100 font-medium text-ink-700">Call</span>
+          <span>Wed Apr 22 · 4:00 PM</span>
+        </div>
+        <h2 class="text-base font-semibold mt-1">Check-in with Aditi (Head of Ops)</h2>
+      </div>
+      <button onclick="closeDetail()" class="text-ink-500 hover:text-ink-900 p-1">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <div class="p-6 space-y-6">
+      <div class="rounded-lg border border-indigo-100 bg-indigo-50/60 px-4 py-3 text-sm text-indigo-800">
+        <b>Scheduled later today</b> — prep view. Recording, summary, and sentiment will appear after the call.
+      </div>
+      <section>
+        <div class="text-xs font-medium text-ink-500 uppercase tracking-wide mb-2">Purpose</div>
+        <p class="text-sm text-ink-700">Acknowledge the billing issue raised on WhatsApp, walk through resolution timeline, reset the relationship after the delay.</p>
+      </section>
+      <section>
+        <div class="text-xs font-medium text-ink-500 uppercase tracking-wide mb-2">Attempt history</div>
+        <div class="rounded-lg border border-gray-200 bg-white divide-y divide-gray-100">
+          <div class="p-3 flex items-center gap-3 text-sm"><span class="text-xs w-20 text-ink-500">Mon 09:47</span><span class="text-xs px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-100">No answer</span><span class="flex-1">Voicemail left</span></div>
+          <div class="p-3 flex items-center gap-3 text-sm"><span class="text-xs w-20 text-ink-500">Fri 16:30</span><span class="text-xs px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100">Connected</span><span class="flex-1">Brief catch-up; flagged billing issue</span></div>
+        </div>
+      </section>
+      <section>
+        <div class="text-xs font-medium text-ink-500 uppercase tracking-wide mb-2">Last connected call notes</div>
+        <p class="text-sm text-ink-700">Aditi mentioned the March invoice had a duplicate charge. Priya said she'd investigate. Call ran 3m 18s.</p>
+      </section>
+    </div>
+  </div>
+</aside>
+
+<script>
+  // ---- Navigation ----
+  function openProfile() {
+    document.getElementById('screen-search').classList.add('hidden');
+    document.getElementById('screen-profile').classList.remove('hidden');
+    window.scrollTo(0, 0);
+  }
+  function backToSearch() {
+    document.getElementById('screen-profile').classList.add('hidden');
+    document.getElementById('screen-search').classList.remove('hidden');
+  }
+  const si = document.getElementById('search-input');
+  const sr = document.getElementById('search-results');
+  si.addEventListener('focus', () => sr.classList.remove('hidden'));
+  si.addEventListener('input', () => sr.classList.remove('hidden'));
+  si.addEventListener('keydown', (e) => { if (e.key === 'Enter') openProfile(); });
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('#search-input') && !e.target.closest('#search-results')) sr.classList.add('hidden');
+  });
+
+  // ---- Tabs ----
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.tab-btn').forEach(b => b.dataset.active = 'false');
+      btn.dataset.active = 'true';
+      document.querySelectorAll('.tab-panel').forEach(p => p.classList.add('hidden'));
+      document.getElementById('tab-' + btn.dataset.tab).classList.remove('hidden');
+    });
+  });
+
+  // ---- DNC modal ----
+  function openDNCModal() {
+    const m = document.getElementById('dnc-modal');
+    m.classList.remove('hidden'); m.classList.add('flex');
+  }
+  function closeDNCModal() {
+    const m = document.getElementById('dnc-modal');
+    m.classList.add('hidden'); m.classList.remove('flex');
+  }
+
+  // ---- Jira modal ----
+  function openJiraModal() {
+    const m = document.getElementById('jira-modal');
+    m.classList.remove('hidden'); m.classList.add('flex');
+  }
+  function closeJiraModal() {
+    const m = document.getElementById('jira-modal');
+    m.classList.add('hidden'); m.classList.remove('flex');
+  }
+
+  // ---- Slide-over ----
+  function openDetail(kind) {
+    document.querySelectorAll('.detail-view').forEach(v => v.classList.remove('is-active'));
+    const target = document.getElementById('view-' + kind);
+    if (target) target.classList.add('is-active');
+    document.getElementById('detail-overlay').classList.remove('hidden');
+    document.getElementById('detail-slideover').classList.add('is-open');
+    document.body.style.overflow = 'hidden';
+  }
+  function closeDetail() {
+    document.getElementById('detail-slideover').classList.remove('is-open');
+    document.getElementById('detail-overlay').classList.add('hidden');
+    document.body.style.overflow = '';
+  }
+  document.getElementById('detail-overlay').addEventListener('click', closeDetail);
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDetail(); });
+
+  // ---- Time filter ----
+  function toggleTimeFilter(id) {
+    const el = document.getElementById(id);
+    const open = el.dataset.open === 'true';
+    document.querySelectorAll('.time-filter').forEach(f => f.dataset.open = 'false');
+    el.dataset.open = open ? 'false' : 'true';
+  }
+  function selectTimeFilter(id, label) {
+    const el = document.getElementById(id);
+    el.querySelector('.time-filter-label').textContent = label;
+    el.dataset.open = 'false';
+    el.querySelector('.time-filter-custom').classList.add('hidden');
+  }
+  function showCustomRange(id) {
+    const el = document.getElementById(id);
+    el.querySelector('.time-filter-custom').classList.remove('hidden');
+  }
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.time-filter')) {
+      document.querySelectorAll('.time-filter').forEach(f => f.dataset.open = 'false');
+    }
+  });
+</script>
+
+</body>
+</html>

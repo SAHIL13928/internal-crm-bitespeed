@@ -1,7 +1,8 @@
-// "Issues" tab — Open / All / Resolved filter + ticket-style cards.
+// "Issues" tab — segment-control filter + ticket-style cards (Jira-flavored ID).
+// Layout matches the mockup pixel-for-pixel.
 import { Api } from "../api";
-import type { ShopProfile, IssueOut } from "../types";
-import { $, emptyBlock, esc, fmtRelative, priorityPill, statusPill, toast } from "../utils";
+import type { IssueOut, ShopProfile } from "../types";
+import { $, esc, fmtRelative, priorityPill, statusPill, toast } from "../utils";
 
 type Filter = "open" | "all" | "resolved";
 let activeFilter: Filter = "open";
@@ -9,32 +10,39 @@ let activeFilter: Filter = "open";
 export async function renderIssues(p: ShopProfile): Promise<void> {
   const body = $("#tab-body");
   if (!body) return;
-  body.innerHTML = filterBar() + `<div class="text-xs text-slate-500 mt-3">Loading…</div>`;
+  body.innerHTML = head() + `<div class="rounded-lg border border-gray-200 bg-white p-6 text-sm text-ink-500 italic">Loading…</div>`;
   bind(p);
 
   const status = activeFilter === "all" ? undefined : activeFilter;
   const issues = (await Api.issues(p.shop_url, status)) || [];
 
-  body.innerHTML = filterBar() + listOrEmpty(issues);
+  body.innerHTML = head() + body_(issues);
   bind(p);
 }
 
-function filterBar(): string {
-  const btn = (key: Filter, label: string) => `
+function head(): string {
+  const seg = (key: Filter, label: string) => `
     <button data-filter="${key}"
-            class="filter-pill ${activeFilter === key ? "filter-pill-active" : ""}">${label}</button>`;
+            class="px-3 py-1 text-xs rounded-md ${activeFilter === key ? "bg-white text-ink-900 shadow-sm font-medium" : "text-ink-500"}">${esc(label)}</button>`;
   return `
     <div class="flex items-center justify-between mb-4">
-      <div class="flex gap-2">${btn("open", "Open")}${btn("resolved", "Resolved")}${btn("all", "All")}</div>
-      <button id="new-issue-btn" class="text-sm px-3 py-1.5 bg-slate-900 text-white rounded hover:bg-slate-800">+ Log new issue</button>
+      <div class="flex items-center gap-3">
+        <h2 class="text-base font-semibold">Issues</h2>
+        <div class="flex items-center gap-1 p-1 bg-gray-100 rounded-lg">
+          ${seg("open", "Open")}${seg("all", "All")}${seg("resolved", "Resolved")}
+        </div>
+      </div>
+      <button id="new-issue-btn"
+              class="text-xs px-3 py-1.5 rounded-lg bg-ink-900 text-white hover:bg-ink-700 inline-flex items-center gap-1.5">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+        Log new issue
+      </button>
     </div>
   `;
 }
 
-function bind(p: ShopProfile): void {
-  const root = $("#tab-body");
-  if (!root) return;
-  root.querySelectorAll<HTMLButtonElement>("button[data-filter]").forEach((btn) => {
+function bind(p: ShopProfile) {
+  document.querySelectorAll<HTMLButtonElement>("button[data-filter]").forEach((btn) => {
     btn.addEventListener("click", () => {
       activeFilter = btn.dataset.filter as Filter;
       void renderIssues(p);
@@ -43,30 +51,35 @@ function bind(p: ShopProfile): void {
   $("#new-issue-btn")?.addEventListener("click", () => promptNewIssue(p));
 }
 
-function listOrEmpty(issues: IssueOut[]): string {
-  if (issues.length === 0) return emptyBlock("No issues here.");
-  return `<div class="space-y-2">${issues.map(card).join("")}</div>`;
+function body_(issues: IssueOut[]): string {
+  if (issues.length === 0) {
+    return `<div class="rounded-lg border border-gray-200 bg-white p-6 text-sm text-ink-500 italic">No issues here.</div>`;
+  }
+  return `<div class="rounded-lg border border-gray-200 bg-white divide-y divide-gray-100">${issues.map(card).join("")}</div>`;
 }
 
 function card(i: IssueOut): string {
-  const ticketTag = i.jira_ticket_id ? `<span class="text-xs text-slate-500 font-mono">${esc(i.jira_ticket_id)}</span>` : `<span class="text-xs text-slate-400 font-mono">CS-${String(i.id).padStart(3, "0")}</span>`;
+  const ticket = i.jira_ticket_id ? esc(i.jira_ticket_id) : `CS-${String(i.id).padStart(3, "0")}`;
+  const status = statusPill(i.status === "in_progress" ? "in_progress" : i.status === "resolved" ? "resolved" : "open");
+  const opened = `${i.opened_at ? fmtRelative(i.opened_at) : "—"}`;
+
   return `
-    <div class="card p-3">
-      <div class="flex items-start justify-between gap-2">
+    <div class="p-4 hover:bg-gray-50 cursor-pointer">
+      <div class="flex items-start justify-between gap-4">
         <div class="flex-1 min-w-0">
           <div class="flex items-center gap-2 flex-wrap">
-            ${ticketTag}
+            <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[#0052CC]/10 text-[#0052CC] font-semibold">${ticket}</span>
             ${priorityPill(i.priority)}
-            ${statusPill(i.status)}
-            <span class="text-sm font-medium truncate">${esc(i.title)}</span>
+            <div class="text-sm font-medium truncate">${esc(i.title)}</div>
           </div>
-          ${i.description ? `<div class="text-xs text-slate-600 mt-1 line-clamp-2">${esc(i.description)}</div>` : ""}
-          <div class="text-xs text-slate-400 mt-2">
-            opened ${esc(fmtRelative(i.opened_at))}
-            ${i.source ? ` · source ${esc(i.source)}` : ""}
-            ${i.owner ? ` · owner ${esc(i.owner)}` : ""}
+          <div class="text-xs text-ink-500 mt-1">
+            Opened ${esc(opened)}
+            ${i.source ? ` · Source: ${esc(i.source)}` : ""}
+            ${i.owner ? ` · Owner: ${esc(i.owner)}` : ""}
           </div>
+          ${i.description ? `<div class="text-sm text-ink-700 mt-2 line-clamp-2">${esc(i.description)}</div>` : ""}
         </div>
+        <div class="shrink-0">${status}</div>
       </div>
     </div>
   `;

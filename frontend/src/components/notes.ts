@@ -1,62 +1,79 @@
-// "Notes" tab — timeline of post-meeting notes / follow-ups.
+// "Notes" tab — write-new textarea + post button + timeline.
 import { Api } from "../api";
-import type { ShopProfile, NoteOut } from "../types";
-import { $, emptyBlock, esc, fmtAbsolute, fmtRelative, initials, toast } from "../utils";
+import type { NoteOut, ShopProfile } from "../types";
+import { $, esc, fmtRelative, initials, toast } from "../utils";
 
 export async function renderNotes(p: ShopProfile): Promise<void> {
   const body = $("#tab-body");
   if (!body) return;
-  body.innerHTML = topBar() + `<div class="text-xs text-slate-500 mt-3">Loading…</div>`;
-  bind(p);
+  body.innerHTML = composer() + `<div class="text-xs text-ink-500">Loading…</div>`;
+  bindComposer(p);
 
   const notes = (await Api.notes(p.shop_url)) || [];
-  body.innerHTML = topBar() + listOrEmpty(notes);
-  bind(p);
+  body.innerHTML = composer() + listOrEmpty(notes);
+  bindComposer(p);
 }
 
-function topBar(): string {
+function composer(): string {
   return `
-    <div class="flex items-center justify-between mb-4">
-      <div class="text-xs text-slate-500">Internal notes &amp; follow-ups</div>
-      <button id="new-note-btn" class="text-sm px-3 py-1.5 bg-slate-900 text-white rounded hover:bg-slate-800">+ Add note</button>
-    </div>
-  `;
-}
-
-function bind(p: ShopProfile): void {
-  $("#new-note-btn")?.addEventListener("click", () => promptNewNote(p));
-}
-
-function listOrEmpty(notes: NoteOut[]): string {
-  if (notes.length === 0) return emptyBlock("No notes yet.");
-  return `<div class="space-y-2">${notes.map(card).join("")}</div>`;
-}
-
-function card(n: NoteOut): string {
-  const initial = `<span class="avatar">${esc(initials(n.author))}</span>`;
-  const dueLine = n.is_followup
-    ? `<div class="text-xs mt-1 ${n.due_at ? "text-amber-700" : "text-slate-500"}">Follow-up${n.due_at ? ` due ${esc(fmtAbsolute(n.due_at, { withTime: false }))}` : ""}</div>`
-    : "";
-  return `
-    <div class="card p-3 flex gap-3">
-      <div class="pt-0.5">${initial}</div>
-      <div class="flex-1 min-w-0">
-        <div class="flex items-baseline justify-between">
-          <div class="text-sm font-medium">${esc(n.author || "team")}</div>
-          <div class="text-xs text-slate-500">${esc(fmtRelative(n.created_at))}</div>
-        </div>
-        <div class="text-sm text-slate-700 mt-1 whitespace-pre-wrap">${esc(n.body)}</div>
-        ${dueLine}
+    <div class="rounded-lg border border-gray-200 bg-white p-4 mb-6">
+      <textarea id="note-text" rows="2" placeholder="Add a note or follow-up..."
+                class="w-full text-sm resize-none focus:outline-none placeholder:text-ink-300"></textarea>
+      <div class="flex items-center justify-between mt-2">
+        <label class="text-xs text-ink-500 flex items-center gap-2">
+          <input id="note-followup" type="checkbox" class="rounded" /> This is a follow-up
+        </label>
+        <button id="note-post-btn" class="text-xs px-3 py-1.5 rounded-lg bg-ink-900 text-white hover:bg-ink-700">Post note</button>
       </div>
     </div>
   `;
 }
 
-async function promptNewNote(p: ShopProfile): Promise<void> {
-  const note = window.prompt("Note?");
-  if (!note) return;
-  const author = window.prompt("Author (your name)?") || undefined;
-  const ok = await Api.createNote(p.shop_url, { body: note, author });
-  if (ok) { toast("Note saved"); void renderNotes(p); }
-  else    { toast("Failed to save note"); }
+function bindComposer(p: ShopProfile) {
+  $("#note-post-btn")?.addEventListener("click", async () => {
+    const ta = $<HTMLTextAreaElement>("#note-text");
+    const cb = $<HTMLInputElement>("#note-followup");
+    const txt = (ta?.value || "").trim();
+    if (!txt) { toast("Note is empty"); return; }
+    const author = window.prompt("Your name (for attribution)?") || undefined;
+    const ok = await Api.createNote(p.shop_url, { body: txt, author, is_followup: cb?.checked });
+    if (ok) { toast("Note posted"); void renderNotes(p); }
+    else    { toast("Failed to post note"); }
+  });
+}
+
+function listOrEmpty(notes: NoteOut[]): string {
+  if (notes.length === 0) {
+    return `<div class="rounded-lg border border-gray-200 bg-white p-6 text-sm text-ink-500 italic">No notes yet.</div>`;
+  }
+  return `<div class="space-y-3">${notes.map(card).join("")}</div>`;
+}
+
+function card(n: NoteOut): string {
+  const followup = n.is_followup
+    ? `<span class="text-[10px] px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-100 font-medium">Follow-up${n.due_at ? ` · due ${esc(formatDue(n.due_at))}` : ""}</span>`
+    : "";
+  const author = n.author || "team";
+  return `
+    <div class="rounded-lg border border-gray-200 bg-white p-4">
+      <div class="flex items-start gap-3">
+        <div class="w-7 h-7 rounded-full bg-indigo-100 text-indigo-700 grid place-items-center text-xs font-semibold shrink-0">${esc(initials(author))}</div>
+        <div class="flex-1 min-w-0">
+          <div class="flex items-center gap-2 flex-wrap">
+            <div class="text-sm font-medium">${esc(author)}</div>
+            <div class="text-xs text-ink-500">${esc(fmtRelative(n.created_at))}</div>
+            ${followup}
+          </div>
+          <p class="text-sm text-ink-700 mt-1.5 whitespace-pre-wrap">${esc(n.body)}</p>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function formatDue(iso: string): string {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  return `${months[d.getMonth()]} ${d.getDate()}`;
 }

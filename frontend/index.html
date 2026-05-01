@@ -6,120 +6,82 @@
   <meta name="api-base" content="">
   <title>Customer CRM</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script>
+    // Match the mockup's color palette + font.
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] },
+          colors: { ink: { 900: '#0B0D12', 700: '#2A2F3A', 500: '#5B6472', 300: '#AEB4BE' } }
+        }
+      }
+    };
+  </script>
   <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #0f172a; }
-
-    /* Health pills — match the reference palette */
-    .pill { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 9999px; font-size: 11px; font-weight: 500; line-height: 18px; }
-    .pill-risk      { background: #fee2e2; color: #b91c1c; }
-    .pill-healthy   { background: #dcfce7; color: #15803d; }
-    .pill-dnc       { background: #e2e8f0; color: #475569; }
-    .pill-concerned { background: #ffedd5; color: #c2410c; }
-    .pill-unknown   { background: #f1f5f9; color: #64748b; }
-
-    /* Priority + status pills */
-    .pill-high   { background: #fee2e2; color: #b91c1c; }
-    .pill-med    { background: #fef3c7; color: #b45309; }
-    .pill-low    { background: #dbeafe; color: #1d4ed8; }
-    .pill-open   { background: #fee2e2; color: #b91c1c; }
-    .pill-progress { background: #fef3c7; color: #b45309; }
-    .pill-resolved { background: #dcfce7; color: #15803d; }
-    .pill-attention { background: #ffedd5; color: #c2410c; }
-    .pill-info     { background: #e0e7ff; color: #4338ca; }
-
-    /* Direction */
-    .pill-out { background: #dbeafe; color: #1d4ed8; }
-    .pill-in  { background: #ede9fe; color: #6d28d9; }
-
-    /* Topic pills (small, gray) */
-    .topic { display: inline-block; padding: 1px 8px; border-radius: 9999px; font-size: 11px; background: #f1f5f9; color: #475569; }
-
-    /* Tab styling */
-    .tab { padding: 10px 14px; font-size: 14px; color: #64748b; border-bottom: 2px solid transparent; cursor: pointer; }
-    .tab:hover { color: #0f172a; }
-    .tab-active { color: #0f172a; border-bottom-color: #0f172a; font-weight: 600; }
-
-    /* Date-range filter pills */
-    .filter-pill { padding: 4px 12px; border-radius: 9999px; font-size: 12px; background: #f1f5f9; color: #475569; cursor: pointer; }
-    .filter-pill:hover { background: #e2e8f0; }
-    .filter-pill-active { background: #0f172a; color: white; }
-
-    /* Avatar (circular initials) */
-    .avatar { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 9999px; font-size: 10px; font-weight: 600; background: #e0e7ff; color: #4338ca; }
-    .avatar + .avatar { margin-left: -6px; border: 2px solid white; }
-
-    /* AI summary box */
-    .ai-box { background: linear-gradient(135deg, #eef2ff 0%, #f0fdf4 100%); border: 1px solid #c7d2fe; border-radius: 8px; padding: 14px; }
-
-    /* Speaker bubbles (WA threads) */
+    html, body { font-family: 'Inter', system-ui, sans-serif; }
+    .tab-btn[data-active="true"] { color: #111827; border-color: #4f46e5; }
+    .tab-btn { border-color: transparent; }
+    .dot { width: 6px; height: 6px; border-radius: 9999px; display: inline-block; }
     .speakerA { background: #f1f5f9; border-left: 3px solid #6366f1; }
     .speakerB { background: #f0fdf4; border-left: 3px solid #22c55e; }
-
     .line-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
     .line-clamp-3 { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
-
-    /* Card */
-    .card { background: white; border: 1px solid #e2e8f0; border-radius: 8px; }
-
-    /* Skeleton shimmer */
-    @keyframes shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
-    .skel { background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%); background-size: 200% 100%; animation: shimmer 1.4s infinite; border-radius: 4px; }
   </style>
 </head>
-<body class="bg-slate-50 min-h-screen">
+<body class="bg-white text-ink-900 antialiased">
 
-<!-- Top bar -->
-<header class="bg-white border-b border-slate-200 px-6 py-3">
-  <div class="max-w-screen-2xl mx-auto flex items-center justify-between">
-    <div class="flex items-center gap-4">
-      <div class="w-8 h-8 rounded bg-slate-900 text-white text-xs font-semibold flex items-center justify-center">CS</div>
-      <div>
-        <h1 class="text-base font-semibold leading-none">Customer CRM</h1>
-        <div class="text-xs text-slate-500 mt-0.5">Bitespeed merchant 360°</div>
-      </div>
+<!-- ========== SEARCH SCREEN ========== -->
+<section id="screen-search" class="min-h-screen flex flex-col items-center justify-center px-6">
+  <div class="w-full max-w-lg">
+    <div class="flex items-center gap-2 mb-10 justify-center">
+      <div class="w-8 h-8 rounded-lg bg-indigo-600 text-white grid place-items-center text-sm font-semibold">C</div>
+      <span class="text-base font-semibold tracking-tight">Customer CRM</span>
     </div>
-    <div class="text-xs text-slate-500" id="health-tag">Loading…</div>
+    <h1 class="text-2xl font-semibold tracking-tight text-center mb-1">Search a merchant</h1>
+    <p class="text-sm text-ink-500 text-center mb-6">Type a shopUrl or brand to open its profile.</p>
+    <div class="relative">
+      <input id="search-input" type="text" autocomplete="off"
+        placeholder="e.g. avishya2021.myshopify.com"
+        class="w-full px-4 py-3 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500" />
+      <div id="search-results" class="absolute left-0 right-0 mt-2 bg-white border border-gray-200 rounded-lg overflow-hidden hidden shadow-sm"></div>
+    </div>
+    <p class="text-xs text-ink-300 mt-6 text-center">Press Enter to open · Esc to clear</p>
+    <div id="search-stats" class="text-xs text-ink-300 mt-12 text-center"></div>
+    <!-- Calendar status banner — populated by main.ts on load. Hidden by
+         default so it only appears once we know the state. -->
+    <div id="calendar-banner" class="hidden text-xs mt-4 text-center"></div>
   </div>
-</header>
+</section>
 
-<div class="max-w-screen-2xl mx-auto grid grid-cols-12 gap-0">
-  <!-- Sidebar: search + merchant list -->
-  <aside class="col-span-3 border-r border-slate-200 bg-white">
-    <div class="p-4 border-b border-slate-200">
-      <input id="q" type="search" placeholder="Search a merchant"
-             class="w-full px-3 py-2 border border-slate-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-slate-300" />
-      <div class="text-[11px] text-slate-400 mt-2">Type a shopUrl or brand · Enter to open</div>
-    </div>
-    <div id="results" class="overflow-y-auto" style="max-height: calc(100vh - 145px);"></div>
-  </aside>
+<!-- ========== MERCHANT PROFILE ========== -->
+<section id="screen-profile" class="hidden min-h-screen bg-gray-50/30">
+  <header class="sticky top-0 z-20 bg-white border-b border-gray-200">
+    <div class="max-w-6xl mx-auto px-8 py-4 flex items-center justify-between" id="profile-header"></div>
+  </header>
 
-  <!-- Main panel -->
-  <main class="col-span-9 p-6">
-    <div id="merchant-shell" class="hidden">
-      <!-- Merchant header -->
-      <div id="merchant-header" class="mb-4"></div>
-      <!-- KPI strip -->
-      <div id="kpi-strip" class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 mb-5"></div>
-      <!-- Tabs -->
-      <nav id="tabs" class="border-b border-slate-200 mb-5 flex gap-1">
-        <button data-tab="upcoming" class="tab tab-active">Upcoming</button>
-        <button data-tab="activity" class="tab">Activity</button>
-        <button data-tab="whatsapp" class="tab">WhatsApp</button>
-        <button data-tab="issues"   class="tab">Issues</button>
-        <button data-tab="notes"    class="tab">Notes</button>
-      </nav>
-      <!-- Tab body -->
-      <section id="tab-body"></section>
-    </div>
+  <div class="max-w-6xl mx-auto px-8 pt-6">
+    <div id="kpi-strip" class="grid grid-cols-6 gap-3"></div>
+  </div>
 
-    <div id="empty-state" class="text-center py-24">
-      <div class="text-slate-400 text-sm">Search and select a merchant to begin.</div>
-      <div class="text-slate-300 text-xs mt-2">Or browse the recent list on the left.</div>
-    </div>
+  <div class="max-w-6xl mx-auto px-8 mt-6 border-b border-gray-200">
+    <nav id="tabs" class="flex gap-6 text-sm">
+      <button class="tab-btn py-3 border-b-2 text-ink-500 hover:text-ink-900" data-tab="upcoming" data-active="true">Upcoming</button>
+      <button class="tab-btn py-3 border-b-2 text-ink-500 hover:text-ink-900" data-tab="calls">Calls &amp; Meetings</button>
+      <button class="tab-btn py-3 border-b-2 text-ink-500 hover:text-ink-900 flex items-center gap-2" data-tab="whatsapp">WhatsApp</button>
+      <button class="tab-btn py-3 border-b-2 text-ink-500 hover:text-ink-900 flex items-center gap-2" data-tab="issues">Issues</button>
+      <button class="tab-btn py-3 border-b-2 text-ink-500 hover:text-ink-900" data-tab="notes">Notes</button>
+    </nav>
+  </div>
+
+  <main class="max-w-6xl mx-auto px-8 py-8">
+    <div id="tab-body"></div>
   </main>
-</div>
+</section>
 
-<div id="toast" class="hidden fixed bottom-5 right-5 bg-slate-900 text-white text-xs px-3 py-2 rounded shadow-lg z-50"></div>
+<div id="toast" class="hidden fixed bottom-5 right-5 bg-ink-900 text-white text-xs px-3 py-2 rounded shadow-lg z-50"></div>
 
 <script type="module" src="/src/main.ts"></script>
 </body>

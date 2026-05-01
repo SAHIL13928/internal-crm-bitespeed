@@ -56,14 +56,67 @@ services:
       PERISKOPE_API_KEY: ${PERISKOPE_API_KEY:-}
       PERISKOPE_PHONE: ${PERISKOPE_PHONE:-}
       FREJUN_API_KEY: ${FREJUN_API_KEY:-}
+      # Google Calendar (optional — leave blank if not using)
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-}
+      GOOGLE_SERVICE_ACCOUNT_JSON: ${GOOGLE_SERVICE_ACCOUNT_JSON:-}
+      GOOGLE_WORKSPACE_DOMAIN: ${GOOGLE_WORKSPACE_DOMAIN:-}
+      CALENDAR_TOKEN_ENCRYPTION_KEY: ${CALENDAR_TOKEN_ENCRYPTION_KEY:-}
+      # Marker — db.py refuses to fall back to SQLite when set, so a
+      # missing/typo'd DATABASE_URL fails fast inside the container
+      # instead of silently writing to an ephemeral on-disk SQLite.
+      CRM_REQUIRE_DATABASE_URL: "1"
     ports:
-      - "8000:8000"
+      # Bind to loopback only — nginx on the host is the sole public
+      # entry point. Port 8000 is NOT exposed to 0.0.0.0; opening it in
+      # the EC2 SG would do nothing.
+      - "127.0.0.1:8000:8000"
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8000/api/health"]
       interval: 30s
       timeout: 5s
       start_period: 90s
       retries: 3
+
+  # Calendar sync sidecar.
+  #
+  # Render's free tier had a separate cron job for this; on EC2 we run
+  # it as a long-lived sibling container instead — same image (so no
+  # extra build), same env, same docker network. Sleep loop, 600s.
+  # If GOOGLE_CLIENT_ID isn't set the script's first iteration finds
+  # zero connections and no-ops in <1s, so this service is safe to
+  # leave running even when calendar isn't enabled yet.
+  calendar-sync:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: cs-crm-calendar-sync
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-cs_crm}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-cs_crm}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-}
+      GOOGLE_SERVICE_ACCOUNT_JSON: ${GOOGLE_SERVICE_ACCOUNT_JSON:-}
+      GOOGLE_WORKSPACE_DOMAIN: ${GOOGLE_WORKSPACE_DOMAIN:-}
+      CALENDAR_TOKEN_ENCRYPTION_KEY: ${CALENDAR_TOKEN_ENCRYPTION_KEY:-}
+      CRM_REQUIRE_DATABASE_URL: "1"
+    # `|| true` so a single failed run (auth blip, network) doesn't stop
+    # the loop — the sync script also catches per-connection errors and
+    # marks them `failing` in the DB, so this is just a belt-and-braces.
+    command:
+      - sh
+      - -c
+      - |
+        echo "calendar-sync sidecar starting (interval 600s)";
+        while true; do
+          python scripts/sync_google_calendars.py || true;
+          sleep 600;
+        done
 
 volumes:
   postgres_data:

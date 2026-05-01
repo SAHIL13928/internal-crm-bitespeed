@@ -83,6 +83,7 @@ See `crm_app/identity.py` and `crm_app/resolver.py`.
 - **Render (alternative):** [docs/deploy.md](docs/deploy.md)
 - **Backend reference (endpoints, ETL stages):** [docs/backend.md](docs/backend.md)
 - **Periskope native webhook (for the WA bridge intern):** [docs/whatsapp_periskope_native.md](docs/whatsapp_periskope_native.md)
+- **Google Calendar setup (per-user OAuth + DWD):** [docs/calendar_setup.md](docs/calendar_setup.md)
 - **Scripts catalog:** [scripts/README.md](scripts/README.md)
 
 ## Tests

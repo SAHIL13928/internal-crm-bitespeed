@@ -76,10 +76,19 @@ def run_bootstrap():
 
 
 def main():
-    if not needs_bootstrap():
-        log.info("DB already populated, skipping ETL")
-        return
-    run_bootstrap()
+    # Guarded so a bootstrap failure (bad CSV, transient DB connect
+    # issue) doesn't crash the container. With docker-compose's
+    # `restart: unless-stopped`, a hard exit triggers a tight restart
+    # loop and we lose the very logs we'd need to debug it. Log the
+    # full traceback and exit 0 — the API still comes up, /api/health
+    # will report shops:0 so the operator knows ETL didn't run.
+    try:
+        if not needs_bootstrap():
+            log.info("DB already populated, skipping ETL")
+            return
+        run_bootstrap()
+    except Exception:
+        log.exception("bootstrap failed — continuing so the API still starts")
 
 
 if __name__ == "__main__":

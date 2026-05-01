@@ -2,8 +2,10 @@
 // Override base via ?api=<url> or <meta name="api-base"> for cross-origin deploys.
 
 import type {
+  CalendarConnection,
   CallDetail, CallListItem, ContactOut, IssueOut, MeetingDetail, MeetingListItem,
-  NoteOut, ShopProfile, ShopSummary, TimelineItem, WhatsAppGroupOut, WhatsAppMessage,
+  NoteOut, ShopProfile, ShopSummary, TimelineItem, UpcomingMeeting,
+  WhatsAppGroupOut, WhatsAppMessage,
 } from "./types";
 
 function resolveApiBase(): string {
@@ -65,7 +67,10 @@ export interface RangeFilter { since?: string; until?: string; limit?: number; }
 
 export const Api = {
   health:     () =>
-    get<{ status: string; shops: number; meetings: number; calls: number; calls_with_shop: number; }>("/api/health"),
+    get<{
+      status: string; shops: number; meetings: number; calls: number; calls_with_shop: number;
+      google_calendar?: { configured: boolean; active_connections: number };
+    }>("/api/health"),
 
   merchants:  (q: string, limit = 50) =>
     get<ShopSummary[]>(`/api/merchants${qstr({ q, limit })}`),
@@ -84,6 +89,14 @@ export const Api = {
 
   meetings:   (shopUrl: string, f: RangeFilter = {}) =>
     get<MeetingListItem[]>(`/api/merchants/${encodeURIComponent(shopUrl)}/meetings${qstr({ since: f.since, until: f.until, limit: f.limit ?? 100 })}`),
+
+  // Google-Calendar-sourced future events. Populated by the sync sidecar;
+  // empty until at least one user has /auth/google/connect-ed.
+  upcomingMeetings: (shopUrl: string, limit = 10) =>
+    get<UpcomingMeeting[]>(`/api/shops/${encodeURIComponent(shopUrl)}/upcoming-meetings${qstr({ limit })}`),
+
+  calendarConnections: () =>
+    get<CalendarConnection[]>("/auth/google/connections"),
 
   meeting:    (id: string) =>
     get<MeetingDetail>(`/api/meetings/${encodeURIComponent(id)}`),
